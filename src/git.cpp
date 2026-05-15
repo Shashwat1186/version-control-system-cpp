@@ -2,7 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include "../src/zstr.hpp"
+#include <zlib.h>
 
 namespace git {
 

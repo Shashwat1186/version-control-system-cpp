@@ -46,7 +46,7 @@ auto cat_file(std::string_view hash) -> void {
 
 // 1. Change this header from <openssl/sha.h>
 
-void hash_object(std::string filename) {
+auto hash_object(std::string filename) -> void{
     std::ifstream file(filename, std::ios::binary);
     if (!file) {
         std::cerr << "Failed to open: " << filename << '\n'; // 2. Fixed 'path' to 'filename'

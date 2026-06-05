@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <sstream>
+#include <iomanip>
 #include "zstr.hpp"
 #include <openssl/sha.h>
 
@@ -46,7 +48,7 @@ auto cat_file(std::string_view hash) -> void {
 auto hash_object(std::string filename)-> void{
   std::ifstream file(filename, std::ios::binary);
   if (!file) {
-    std::cerr << "Failed to open: " << path << '\n';
+    std::cerr << "Failed to open: " << filename << '\n';
     return;
   }
   SHA_CTX shaContext;
@@ -56,11 +58,11 @@ auto hash_object(std::string filename)-> void{
   while(file.read(buffer, sizeof(buffer)) || file.gcount()>0){
     SHA1_Update(&shaContext, reinterpret_cast<unsigned char*>(buffer), file.gcount());
   }
-  unsigned char hash[20];
+  unsigned char hash[SHA_DIGEST_LENGTH];
   SHA1_Final(hash, &shaContext);
   file.close();
   std::stringstream ss;
-  for(int i = 0 ; i<20; i++){
+  for(int i = 0 ; i<SHA_DIGEST_LENGTH; i++){
     ss<<std::hex<<std::setw(2)<<std::setfill('0')<<(int)hash[i];
   }
   std::string hashString = ss.str();

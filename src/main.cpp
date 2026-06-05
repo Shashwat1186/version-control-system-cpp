@@ -16,9 +16,14 @@ int main(int argc, char *argv[]) {
 
   if (command == "init") {
     git::init();
-  } else if (command == "cat-file") {
+  } 
+  else if (command == "cat-file") {
     git::cat_file(argv[3]);
-  } else {
+  } 
+  else if(command == "hash-object"){
+    git::hash_object(argv[3]);
+  }
+  else {
     std::cerr << "Unknown command " << command << '\n';
     return EXIT_FAILURE;
   }

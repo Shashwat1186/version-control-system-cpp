@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <string_view>
 #include "zstr.hpp"
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 
 namespace git {
 

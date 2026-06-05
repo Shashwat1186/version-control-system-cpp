@@ -82,7 +82,7 @@ auto hash_object(std::string filename) -> void {
     try {
         std::filesystem::rename(filename, newPath);
         std::cout << "File moved successfully to " << destination << '\n';
-    } catch (const fs::filesystem_error& e) {
+    } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Error moving file: " << e.what() << '\n';
     }
 }

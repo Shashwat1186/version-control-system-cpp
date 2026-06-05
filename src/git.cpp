@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <string_view>
 #include "zstr.hpp"
-#include <openssl/evp.h>
+#include <openssl/sha.h>
 
 namespace git {
 
@@ -46,51 +46,41 @@ auto cat_file(std::string_view hash) -> void {
   std::cout << std::string_view(contents.begin() + header_size, contents.end());
 }
 
-void hash_object(std::string filename) {
+auto hash_object(std::string filename) -> void {
     std::ifstream file(filename, std::ios::binary);
     if (!file) {
-        std::cerr << "Failed to open: " << filename << '\n'; // 2. Fixed 'path' to 'filename'
+        std::cerr << "Failed to open: " << filename << '\n';
         return;
     }
 
-    // 3. Create and initialize the modern OpenSSL 3.0 Context
-    EVP_MD_CTX* mdContext = EVP_MD_CTX_new();
-    if (!mdContext) {
-        std::cerr << "Failed to create EVP context\n";
-        return;
-    }
+    // Read entire file
+    std::string content(
+        (std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>()
+    );
 
-    // 4. Fetch the SHA-1 algorithm and initialize the context with it
-    if (EVP_DigestInit_ex(mdContext, EVP_sha1(), nullptr) != 1) {
-        std::cerr << "Failed to initialize SHA-1 digest\n";
-        EVP_MD_CTX_free(mdContext);
-        return;
-    }
+    // Git blob format: "blob <size>\0<content>"
+    std::string blob = "blob " + std::to_string(content.size()) + '\0' + content;
 
-    char buffer[4096];
+    SHA_CTX shaContext;
+    SHA1_Init(&shaContext);
+    SHA1_Update(&shaContext, blob.data(), blob.size());
 
-    // 5. Streaming loop remains practically identical
-    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
-        EVP_DigestUpdate(mdContext, buffer, file.gcount());
-    }
+    unsigned char hash[SHA_DIGEST_LENGTH];
+    SHA1_Final(hash, &shaContext);
 
-    // 6. Finalize and fetch the hash bytes
-    unsigned char hashBytes[EVP_MAX_MD_SIZE];
-    unsigned int hashLen = 0;
-    EVP_DigestFinal_ex(mdContext, hashBytes, &hashLen);
-
-    // 7. Clean up the allocated context memory
-    EVP_MD_CTX_free(mdContext);
-    file.close();
-
-    // 8. Convert raw bytes to standard Git Hex string format
     std::stringstream ss;
-    for (unsigned int i = 0; i < hashLen; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hashBytes[i];
+    for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
+        ss << std::hex
+           << std::setw(2)
+           << std::setfill('0')
+           << static_cast<unsigned int>(hash[i]);
     }
-    std::string hashString = ss.str();
 
-    // Print the final 40-character SHA-1 string
-    std::cout << hashString << std::endl;
+    std::cout << ss.str() << '\n';
+    auto path = std::string(".git/objects/") + std::string(ss.str().substr(0, 2)) + "/" + std::string(ss.str().substr(2));
+    std::ofstream file1(path);
+    file1.close();
+
 }
 }

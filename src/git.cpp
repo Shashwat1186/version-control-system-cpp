@@ -45,7 +45,7 @@ auto cat_file(std::string_view hash) -> void {
   std::cout << std::string_view(contents.begin() + header_size, contents.end());
 }
 
-auto hash_object(const std::string& filename) -> void {
+auto hash_object(std::string& filename) -> void {
     std::ifstream file(filename, std::ios::binary);
     if (!file) {
         std::cerr << "Failed to open: " << filename << '\n';

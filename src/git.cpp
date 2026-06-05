@@ -63,7 +63,7 @@ auto hash_object(std::string filename)-> void{
   file.close();
   std::stringstream ss;
   for(int i = 0 ; i<SHA_DIGEST_LENGTH; i++){
-    ss<<std::hex<<std::setw(2)<<std::setfill('0')<<(int)hash[i];
+    ss<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<unsigned int>(hash[i]);
   }
   std::string hashString = ss.str();
   std::cout<< hashString << std::endl;

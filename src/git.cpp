@@ -7,7 +7,6 @@
 #include <string_view>
 #include "zstr.hpp"
 #include <openssl/sha.h>
-
 namespace git {
 
 auto init() -> void {
@@ -78,9 +77,8 @@ auto hash_object(std::string filename) -> void {
     }
 
     std::cout << ss.str() << '\n';
-    auto path = std::string(".git/objects/") + std::string(ss.str().substr(0, 2)) + "/" + std::string(ss.str().substr(2));
-    std::ofstream file1(path);
-    file1.close();
+    std::filesystem::path newPath = std::string(".git/objects/") + std::string(ss.str().substr(0, 2)) + "/" + std::string(ss.str().substr(2));
+    std::filesystem::rename(filename, newPath);
 
 }
 }

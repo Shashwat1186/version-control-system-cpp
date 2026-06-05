@@ -78,7 +78,12 @@ auto hash_object(std::string filename) -> void {
 
     std::cout << ss.str() << '\n';
     std::filesystem::path newPath = std::string(".git/objects/") + std::string(ss.str().substr(0, 2)) + "/" + std::string(ss.str().substr(2));
-    std::filesystem::rename(filename, newPath);
-
+    
+    try {
+        std::filesystem::rename(filename, newPath);
+        std::cout << "File moved successfully to " << destination << '\n';
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "Error moving file: " << e.what() << '\n';
+    }
 }
 }

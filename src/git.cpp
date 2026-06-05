@@ -3,8 +3,7 @@
 #include <iostream>
 #include <string>
 #include "zstr.hpp"
-#include <sstream>
-#include <openssl/evp.h> 
+#include <openssl/sha.h>
 
 namespace git {
 
@@ -44,53 +43,28 @@ auto cat_file(std::string_view hash) -> void {
   std::cout << std::string_view(contents.begin() + header_size, contents.end());
 }
 
-// 1. Change this header from <openssl/sha.h>
-
-auto hash_object(std::string filename) -> void{
-    std::ifstream file(filename, std::ios::binary);
-    if (!file) {
-        std::cerr << "Failed to open: " << filename << '\n'; // 2. Fixed 'path' to 'filename'
-        return;
-    }
-
-    // 3. Create and initialize the modern OpenSSL 3.0 Context
-    EVP_MD_CTX* mdContext = EVP_MD_CTX_new();
-    if (!mdContext) {
-        std::cerr << "Failed to create EVP context\n";
-        return;
-    }
-
-    // 4. Fetch the SHA-1 algorithm and initialize the context with it
-    if (EVP_DigestInit_ex(mdContext, EVP_sha1(), nullptr) != 1) {
-        std::cerr << "Failed to initialize SHA-1 digest\n";
-        EVP_MD_CTX_free(mdContext);
-        return;
-    }
-
-    char buffer[4096];
-
-    // 5. Streaming loop remains practically identical
-    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
-        EVP_DigestUpdate(mdContext, buffer, file.gcount());
-    }
-
-    // 6. Finalize and fetch the hash bytes
-    unsigned char hashBytes[EVP_MAX_MD_SIZE];
-    unsigned int hashLen = 0;
-    EVP_DigestFinal_ex(mdContext, hashBytes, &hashLen);
-
-    // 7. Clean up the allocated context memory
-    EVP_MD_CTX_free(mdContext);
-    file.close();
-
-    // 8. Convert raw bytes to standard Git Hex string format
-    std::stringstream ss;
-    for (unsigned int i = 0; i < hashLen; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hashBytes[i];
-    }
-    std::string hashString = ss.str();
-
-    // Print the final 40-character SHA-1 string
-    std::cout << hashString << std::endl;
+auto hash_object(std::string filename)-> void{
+  std::ifstream file(filename, std::ios::binary);
+  if (!file) {
+    std::cerr << "Failed to open: " << path << '\n';
+    return;
+  }
+  SHA_CTX shaContext;
+  SHA1_Init(&shaContext);
+  char buffer[4096];
+  size_t bytesRead;
+  while(file.read(buffer, sizeof(buffer)) || file.gcount()>0){
+    SHA1_Update(&shaContext, reinterpret_cast<unsigned char*>(buffer), file.gcount());
+  }
+  unsigned char hash[20];
+  SHA1_Final(hash, &shaContext);
+  file.close();
+  std::stringstream ss;
+  for(int i = 0 ; i<20; i++){
+    ss<<std::hex<<std::setw(2)<<std::setfill('0')<<(int)hash[i];
+  }
+  std::string hashString = ss.str();
+  std::cout<< hashString << std::endl;
 }
-}
+
+} // namespace git

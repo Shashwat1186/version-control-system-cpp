@@ -4,6 +4,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <string_view>
 #include "zstr.hpp"
 #include <openssl/sha.h>
 

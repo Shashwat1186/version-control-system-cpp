@@ -45,26 +45,37 @@ auto cat_file(std::string_view hash) -> void {
   std::cout << std::string_view(contents.begin() + header_size, contents.end());
 }
 
-auto hash_object(std::string filename)-> void{
-  std::ifstream file(filename, std::ios::binary);
-  if (!file) {
-    std::cerr << "Failed to open: " << filename << '\n';
-    return;
-  }
-  SHA_CTX shaContext;
-  SHA1_Init(&shaContext);
-  std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
-  std::string blob = "blob" + std::to_string(content.size()) + '\0' + contents;
-  unsigned char hash[SHA_DIGEST_LENGTH];
-  SHA1_Update(&shaContext, blob.data(), blob.size());
-  SHA1_Final(hash, &shaContext);
-  file.close();
-  std::stringstream ss;
-  for(int i = 0 ; i<SHA_DIGEST_LENGTH; i++){
-    ss<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<unsigned int>(hash[i]);
-  }
-  std::string hashString = ss.str();
-  std::cout<< hashString << std::endl;
-}
+auto hash_object(const std::string& filename) -> void {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Failed to open: " << filename << '\n';
+        return;
+    }
 
-} // namespace git
+    // Read entire file
+    std::string content(
+        (std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>()
+    );
+
+    // Git blob format: "blob <size>\0<content>"
+    std::string blob = "blob " + std::to_string(content.size()) + '\0' + content;
+
+    SHA_CTX shaContext;
+    SHA1_Init(&shaContext);
+    SHA1_Update(&shaContext, blob.data(), blob.size());
+
+    unsigned char hash[SHA_DIGEST_LENGTH];
+    SHA1_Final(hash, &shaContext);
+
+    std::stringstream ss;
+    for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
+        ss << std::hex
+           << std::setw(2)
+           << std::setfill('0')
+           << static_cast<unsigned int>(hash[i]);
+    }
+
+    std::cout << ss.str() << '\n';
+}
+}

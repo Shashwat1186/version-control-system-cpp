@@ -57,7 +57,7 @@ auto hash_object(std::string filename) -> void {
         (std::istreambuf_iterator<char>(file)),
         std::istreambuf_iterator<char>()
     );
-
+    file.close();
     // Git blob format: "blob <size>\0<content>"
     std::string blob = "blob " + std::to_string(content.size()) + '\0' + content;
 
@@ -76,14 +76,34 @@ auto hash_object(std::string filename) -> void {
            << static_cast<unsigned int>(hash[i]);
     }
 
-    std::cout << ss.str() << '\n';
-    std::filesystem::path newPath = std::string(".git/objects/") + std::string(ss.str().substr(0, 2)) + "/" + std::string(ss.str().substr(2));
+    std::string hashString = ss.str();
+
+    // Print the calculated hash to standard output (required by CodeCrafters/Git)
+    std::cout << hashString << '\n';
+
+    // Build the Git directory layout paths
+    std::string dir_prefix = hashString.substr(0, 2);
+    std::string file_suffix = hashString.substr(2);
+    
+    std::filesystem::path target_dir = std::filesystem::path(".git/objects") / dir_prefix;
+    std::filesystem::path newPath = target_dir / file_suffix;
     
     try {
-        std::filesystem::rename(std::filesystem::current_path(), newPath);
-        std::cout << "File moved successfully to " << newPath << '\n';
+        // 1. Ensure the nested subfolder (e.g. .git/objects/88) exists before writing
+        std::filesystem::create_directories(target_dir);
+
+        // 2. Compress and write the blob to disk using zstr
+        zstr::ofstream outFile(newPath.string());
+        if (!outFile) {
+            std::cerr << "Failed to create object file at: " << newPath << '\n';
+            return;
+        }
+        
+        outFile << blob;
+        outFile.close();
+
     } catch (const std::filesystem::filesystem_error& e) {
-        std::cerr << "Error moving file: " << e.what() << '\n';
+        std::cerr << "Error storing git object: " << e.what() << '\n';
     }
 }
 }

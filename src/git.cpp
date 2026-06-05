@@ -53,12 +53,10 @@ auto hash_object(std::string filename)-> void{
   }
   SHA_CTX shaContext;
   SHA1_Init(&shaContext);
-  char buffer[4096];
-  size_t bytesRead;
-  while(file.read(buffer, sizeof(buffer)) || file.gcount()>0){
-    SHA1_Update(&shaContext, reinterpret_cast<unsigned char*>(buffer), file.gcount());
-  }
+  std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+  std::string blob = "blob" + std::to_string(content.size()) + '\0' + contents;
   unsigned char hash[SHA_DIGEST_LENGTH];
+  SHA1_Update(&shaContext, blob.data(), blob.size());
   SHA1_Final(hash, &shaContext);
   file.close();
   std::stringstream ss;

@@ -93,3 +93,4 @@ void hash_object(std::string filename) {
     // Print the final 40-character SHA-1 string
     std::cout << hashString << std::endl;
 }
+}

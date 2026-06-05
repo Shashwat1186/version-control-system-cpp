@@ -52,15 +52,17 @@ auto hash_object(std::string filename) -> void {
         return;
     }
 
-    // Read entire file
+    // Read entire file content
     std::string content(
         (std::istreambuf_iterator<char>(file)),
         std::istreambuf_iterator<char>()
     );
-    file.close();
+    file.close(); // Close it as soon as we are done reading
+
     // Git blob format: "blob <size>\0<content>"
     std::string blob = "blob " + std::to_string(content.size()) + '\0' + content;
 
+    // Calculate SHA-1 Hash
     SHA_CTX shaContext;
     SHA1_Init(&shaContext);
     SHA1_Update(&shaContext, blob.data(), blob.size());
@@ -68,6 +70,7 @@ auto hash_object(std::string filename) -> void {
     unsigned char hash[SHA_DIGEST_LENGTH];
     SHA1_Final(hash, &shaContext);
 
+    // Convert hash bytes to a 40-character hex string
     std::stringstream ss;
     for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
         ss << std::hex
@@ -75,7 +78,6 @@ auto hash_object(std::string filename) -> void {
            << std::setfill('0')
            << static_cast<unsigned int>(hash[i]);
     }
-
     std::string hashString = ss.str();
 
     // Print the calculated hash to standard output (required by CodeCrafters/Git)

@@ -59,12 +59,12 @@ auto hash_object(std::string filename){
   unsigned char hash[20];
   SHA1_Final(hash, &shaContext);
   file.close();
-  std::stringstram ss;
+  std::stringstream ss;
   for(int i = 0 ; i<20; i++){
     ss<<std::hex<<std::setw(2)<<std::setfill('0')<<(int)hash[i];
   }
   std::string hashString = ss.str();
-  std::cout<< hashString << endl;
+  std::cout<< hashString << std::endl;
 }
 
 } // namespace git

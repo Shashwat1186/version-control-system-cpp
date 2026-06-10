@@ -94,13 +94,20 @@ auto hash_object(std::string filename) -> void {
         // 1. Ensure the nested subfolder (e.g. .git/objects/88) exists before writing
         std::filesystem::create_directories(target_dir);
 
-        // 2. Compress and write the blob to disk using zstr
-        zstr::ofstream outFile(newPath.string());
+        zstr::ofstream outFile(newPath.string(), std::ios::binary, Z_DEFAULT_COMPRESSION, 15);
         if (!outFile) {
             std::cerr << "Failed to create object file at: " << newPath << '\n';
             return;
         }
-        
+        // compress blob into a buffer
+        uLongf compSize = compressBound(blob.size());
+        std::vector<Bytef> compressed(compSize);
+        compress2(compressed.data(), &compSize,
+                  reinterpret_cast<const Bytef*>(blob.data()), blob.size(),
+                  Z_DEFAULT_COMPRESSION);
+
+        std::ofstream outFile(newPath.string(), std::ios::binary);
+        outFile.write(reinterpret_cast<char*>(compressed.data()), compSize);
         outFile << blob;
         outFile.close();
 

@@ -84,11 +84,11 @@ auto hash_object(std::string filename) -> void {
     std::cout << hashString << '\n';
 
     // Build the Git directory layout paths
-    std::string dir_prefix = hashString.substr(0, 2);
-    std::string file_suffix = hashString.substr(2);
+    std::string dir_name = hashString.substr(0, 2);
+    std::string file_name = hashString.substr(2);
     
-    std::filesystem::path target_dir = std::filesystem::path(".git/objects") / dir_prefix;
-    std::filesystem::path newPath = target_dir / file_suffix;
+    std::filesystem::path target_dir = std::filesystem::path(".git/objects") / dir_name;
+    std::filesystem::path newPath = target_dir / file_name;
     
     try {
         // 1. Ensure the nested subfolder (e.g. .git/objects/88) exists before writing

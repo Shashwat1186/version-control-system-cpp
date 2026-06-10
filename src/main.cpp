@@ -21,7 +21,18 @@ int main(int argc, char *argv[]) {
     git::cat_file(argv[3]);
   } 
   else if(command == "hash-object"){
-    git::hash_object(argv[3]);
+    if(argc<=3){
+      std::cerr << "Invalid Arguments"<<std::endl;
+      return EXIT_FAILURE;
+    }
+      std::string mode = argv[2];
+      if(mode!= "-w"){
+        std::cerr << "Invalid mode for hash-object, expected '-w'"<<std::endl;
+        return EXIT_FAILURE;
+      }
+      git::hash_object(argv[3]);
+    
+    
   }
   else {
     std::cerr << "Unknown command " << command << '\n';

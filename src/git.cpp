@@ -91,28 +91,36 @@ auto hash_object(std::string filename) -> void {
     std::filesystem::path newPath = target_dir / file_name;
     
     try {
-        // 1. Ensure the nested subfolder (e.g. .git/objects/88) exists before writing
+        // 1. Ensure the nested subfolder exists before writing
         std::filesystem::create_directories(target_dir);
 
-        zstr::ofstream outFile(newPath.string(), std::ios::binary, Z_DEFAULT_COMPRESSION, 15);
+        // 2. Allocate a buffer large enough for the compressed data
+        uLongf compressed_size = compressBound(blob.size());
+        std::vector<unsigned char> compressed_data(compressed_size);
+
+        // 3. Compress the blob string into ZLIB format
+        int zlib_status = compress(compressed_data.data(), &compressed_size, 
+                                   reinterpret_cast<const unsigned char*>(blob.data()), 
+                                   blob.size());
+                                   
+        if (zlib_status != Z_OK) {
+            std::cerr << "Zlib compression failed with error code: " << zlib_status << '\n';
+            return;
+        }
+
+        // 4. Write the ZLIB compressed data to disk using standard binary fstream
+        std::ofstream outFile(newPath, std::ios::binary);
         if (!outFile) {
             std::cerr << "Failed to create object file at: " << newPath << '\n';
             return;
         }
-        // compress blob into a buffer
-        uLongf compSize = compressBound(blob.size());
-        std::vector<Bytef> compressed(compSize);
-        compress2(compressed.data(), &compSize,
-                  reinterpret_cast<const Bytef*>(blob.data()), blob.size(),
-                  Z_DEFAULT_COMPRESSION);
-
-        std::ofstream outFile(newPath.string(), std::ios::binary);
-        outFile.write(reinterpret_cast<char*>(compressed.data()), compSize);
-        outFile << blob;
+        
+        outFile.write(reinterpret_cast<const char*>(compressed_data.data()), compressed_size);
         outFile.close();
 
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Error storing git object: " << e.what() << '\n';
-    }
+    
+    } 
 }
 }

@@ -39,7 +39,7 @@ auto cat_file(std::string_view hash) -> void {
     return;
   }
   std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
-
+  file.close();
   auto header_size = contents.find('\0') + 1;
 
   std::cout << std::string_view(contents.begin() + header_size, contents.end());
@@ -52,17 +52,11 @@ auto hash_object(std::string filename) -> void {
         return;
     }
 
-    // Read entire file content
-    std::string content(
-        (std::istreambuf_iterator<char>(file)),
-        std::istreambuf_iterator<char>()
-    );
-    file.close(); // Close it as soon as we are done reading
+    std::string content((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+    file.close(); 
 
-    // Git blob format: "blob <size>\0<content>"
     std::string blob = "blob " + std::to_string(content.size()) + '\0' + content;
 
-    // Calculate SHA-1 Hash
     SHA_CTX shaContext;
     SHA1_Init(&shaContext);
     SHA1_Update(&shaContext, blob.data(), blob.size());
@@ -70,7 +64,6 @@ auto hash_object(std::string filename) -> void {
     unsigned char hash[SHA_DIGEST_LENGTH];
     SHA1_Final(hash, &shaContext);
 
-    // Convert hash bytes to a 40-character hex string
     std::stringstream ss;
     for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
         ss << std::hex
@@ -80,10 +73,8 @@ auto hash_object(std::string filename) -> void {
     }
     std::string hashString = ss.str();
 
-    // Print the calculated hash to standard output (required by CodeCrafters/Git)
     std::cout << hashString << '\n';
 
-    // Build the Git directory layout paths
     std::string dir_name = hashString.substr(0, 2);
     std::string file_name = hashString.substr(2);
     
@@ -91,24 +82,20 @@ auto hash_object(std::string filename) -> void {
     std::filesystem::path newPath = target_dir / file_name;
     
     try {
-        // 1. Ensure the nested subfolder exists before writing
         std::filesystem::create_directories(target_dir);
 
         // 2. Allocate a buffer large enough for the compressed data
         uLongf compressed_size = compressBound(blob.size());
+        //unsigned char is used because compressed data is binary
         std::vector<unsigned char> compressed_data(compressed_size);
 
-        // 3. Compress the blob string into ZLIB format
-        int zlib_status = compress(compressed_data.data(), &compressed_size, 
-                                   reinterpret_cast<const unsigned char*>(blob.data()), 
-                                   blob.size());
+        int zlib_status = compress(compressed_data.data(), &compressed_size, reinterpret_cast<const unsigned char*>(blob.data()), blob.size());
                                    
         if (zlib_status != Z_OK) {
             std::cerr << "Zlib compression failed with error code: " << zlib_status << '\n';
             return;
         }
 
-        // 4. Write the ZLIB compressed data to disk using standard binary fstream
         std::ofstream outFile(newPath, std::ios::binary);
         if (!outFile) {
             std::cerr << "Failed to create object file at: " << newPath << '\n';
@@ -123,4 +110,20 @@ auto hash_object(std::string filename) -> void {
     
     } 
 }
+
+auto ls_tree(std::string_view hash) -> void {
+  auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
+
+  zstr::ifstream file(path);
+  if (!file) {
+    std::cerr << "Failed to open: " << path << '\n';
+    return;
+  }
+  std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+  file.close();
+  auto header_size = contents.find('\0') + 1;
+
+  std::cout << std::string_view(contents.begin() + header_size, contents.end());
+}
+
 }

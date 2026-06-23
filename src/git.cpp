@@ -121,9 +121,25 @@ auto ls_tree(std::string_view hash) -> void {
   }
   std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
   file.close();
-  auto header_size = contents.find('\0') + 1;
+  auto pos = contents.find('\0') + 1;  // skip "tree <size>\0"
 
-  std::cout << std::string_view(contents.begin() + header_size, contents.end());
+    while (pos < contents.size()) {
+        auto null_pos = contents.find('\0', pos);
+
+        // "40000 banana"
+        std::string_view entry(
+            contents.data() + pos,
+            null_pos - pos
+        );
+
+        auto space_pos = entry.find(' ');
+        std::string_view name = entry.substr(space_pos + 1);
+
+        std::cout << name << '\n';
+
+        // skip '\0' + 20-byte SHA1
+        pos = null_pos + 1 + 20;
+    }
 }
 
 }

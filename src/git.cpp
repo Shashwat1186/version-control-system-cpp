@@ -142,7 +142,7 @@ auto ls_tree_name_only(std::string_view hash) -> void {
     }
 }
 
-auto ls_tree_name_only(std::string_view hash) -> void {
+auto ls_tree(std::string_view hash) -> void {
   auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
 
   zstr::ifstream file(path);

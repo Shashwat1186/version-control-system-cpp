@@ -111,7 +111,7 @@ auto hash_object(std::string filename) -> void {
     } 
 }
 
-auto ls_tree(std::string_view hash) -> void {
+auto ls_tree_name_only(std::string_view hash) -> void {
   auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
 
   zstr::ifstream file(path);
@@ -142,4 +142,55 @@ auto ls_tree(std::string_view hash) -> void {
     }
 }
 
+auto ls_tree_name_only(std::string_view hash) -> void {
+  auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
+
+  zstr::ifstream file(path);
+  if (!file) {
+    std::cerr << "Failed to open: " << path << '\n';
+    return;
+  }
+  std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+  file.close();
+  auto pos = contents.find('\0') + 1;
+
+while (pos < contents.size()) {
+    auto null_pos = contents.find('\0', pos);
+
+    std::string_view entry(
+        contents.data() + pos,
+        null_pos - pos
+    );
+
+    auto space_pos = entry.find(' ');
+
+    std::string mode(entry.substr(0, space_pos));
+    std::string name(entry.substr(space_pos + 1));
+
+    const unsigned char* sha =
+        reinterpret_cast<const unsigned char*>(
+            contents.data() + null_pos + 1
+        );
+
+    std::stringstream ss;
+
+    for (int i = 0; i < 20; i++) {
+        ss << std::hex
+           << std::setw(2)
+           << std::setfill('0')
+           << static_cast<int>(sha[i]);
+    }
+
+    std::string type =
+        (mode == "40000") ? "tree" : "blob";
+
+    std::cout
+        << mode << ' '
+        << type << ' '
+        << ss.str() << ' '
+        << name << '\n';
+
+    pos = null_pos + 1 + 20;
+}
+}
 }

@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
       git::hash_object(argv[3]);
   }
   else if(command == "ls-tree"){
-    if(argc==4) git::ls_tree(argv[3]);
+    if(argc==4) git::ls_tree_name_only(argv[3]);
   }
   else {
     std::cerr << "Unknown command " << command << '\n';

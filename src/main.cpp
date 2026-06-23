@@ -34,6 +34,7 @@ int main(int argc, char *argv[]) {
   }
   else if(command == "ls-tree"){
     if(argc==4) git::ls_tree_name_only(argv[3]);
+    else git::ls_tree(argv[2]);
   }
   else {
     std::cerr << "Unknown command " << command << '\n';

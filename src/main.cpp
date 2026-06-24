@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     else git::ls_tree(argv[2]);
   }
   else if (command == "write-tree") {
-      std::string sha = writeTree(fs::current_path());
+      git::writeTree(fs::current_path());
       
   }
   else {

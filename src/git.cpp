@@ -1,26 +1,34 @@
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <string>
-#include <sstream>
 #include <iomanip>
+#include <iostream>
+#include <iterator>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include <string_view>
+#include <tuple>
+#include <vector>
+
 #include "zstr.hpp"
 #include <openssl/sha.h>
 
 namespace fs = std::filesystem;
+
+namespace {
+
 std::vector<unsigned char> readFile(const std::string &path) {
     std::ifstream file(path, std::ios::binary);
     if (!file) throw std::runtime_error("Failed to open file: " + path);
-    return std::vector<unsigned char>((std::istreambuf_iterator<char>(file)),
-                                      std::istreambuf_iterator<char>());
+    return std::vector<unsigned char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
 std::vector<unsigned char> compressZlib(const std::string &data) {
     z_stream zs{};
     if (deflateInit(&zs, Z_BEST_COMPRESSION) != Z_OK) throw std::runtime_error("deflateInit failed");
 
-    zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data.data()));
+    zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(data.data()));
     zs.avail_in = static_cast<uInt>(data.size());
 
     std::vector<unsigned char> outBuffer;
@@ -44,7 +52,7 @@ std::vector<unsigned char> compressZlib(const std::string &data) {
 
 std::string decompressZlib(const std::vector<unsigned char> &data) {
     z_stream zs{};
-    zs.next_in = const_cast<Bytef*>(data.data());
+    zs.next_in = const_cast<Bytef *>(data.data());
     zs.avail_in = static_cast<uInt>(data.size());
 
     if (inflateInit(&zs) != Z_OK) throw std::runtime_error("inflateInit failed");
@@ -53,7 +61,7 @@ std::string decompressZlib(const std::vector<unsigned char> &data) {
     char temp[4096];
     int ret;
     do {
-        zs.next_out = reinterpret_cast<Bytef*>(temp);
+        zs.next_out = reinterpret_cast<Bytef *>(temp);
         zs.avail_out = sizeof(temp);
 
         ret = inflate(&zs, Z_NO_FLUSH);
@@ -71,57 +79,17 @@ std::string decompressZlib(const std::vector<unsigned char> &data) {
 
 std::string sha1Hex(const std::string &data) {
     unsigned char hash[SHA_DIGEST_LENGTH];
-    SHA1(reinterpret_cast<const unsigned char*>(data.data()), data.size(), hash);
+    SHA1(reinterpret_cast<const unsigned char *>(data.data()), data.size(), hash);
 
     std::stringstream ss;
-    for (int i = 0; i < SHA_DIGEST_LENGTH; ++i)
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+    for (int i = 0; i < SHA_DIGEST_LENGTH; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
     return ss.str();
 }
 
-namespace git {
-
-auto init() -> void {
-  try {
-    std::filesystem::create_directory(".git");
-    std::filesystem::create_directory(".git/objects");
-    std::filesystem::create_directory(".git/refs");
-
-    std::ofstream headFile(".git/HEAD");
-
-    if (headFile.is_open()) {
-      headFile << "ref: refs/heads/main\n";
-      headFile.close();
-    } else {
-      std::cerr << "Failed to create .git/HEAD file.\n";
-    }
-
-    std::cout << "Initialized git directory\n";
-  } catch (const std::filesystem::filesystem_error &e) {
-    std::cerr << e.what() << '\n';
-  }
-}
-
-auto cat_file(std::string_view hash) -> void {
-  auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
-
-  zstr::ifstream file(path);
-  if (!file) {
-    std::cerr << "Failed to open: " << path << '\n';
-    return;
-  }
-  std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
-  file.close();
-  auto header_size = contents.find('\0') + 1;
-
-  std::cout << std::string_view(contents.begin() + header_size, contents.end());
-}
-
-auto hash_object(std::string filename) -> void {
-    std::vector<unsigned char> contentVec = readFile(fileArg);
-    std::string content(contentVec.begin(), contentVec.end());
-
-    std::string header = "blob " + std::to_string(content.size()) + '\0';
+std::string writeObject(const std::string &type, const std::string &content) {
+    std::string header = type + " " + std::to_string(content.size()) + '\0';
     std::string storeData = header + content;
     std::string sha = sha1Hex(storeData);
 
@@ -132,105 +100,25 @@ auto hash_object(std::string filename) -> void {
 
     std::string path = dir + "/" + sha.substr(2);
     std::ofstream out(path, std::ios::binary);
-    if (!out) throw std::runtime_error("Failed to write blob object");
-    out.write(reinterpret_cast<const char*>(compressed.data()), compressed.size());
-    out.close();
-
-    std::cout << sha << "\n";
+    if (!out) throw std::runtime_error("Failed to write " + type + " object");
+    out.write(reinterpret_cast<const char *>(compressed.data()), compressed.size());
+    return sha;
 }
 
-auto ls_tree_name_only(std::string_view hash) -> void {
-  auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
-
-  std::vector<unsigned char> contentVec = readFile(fileArg);
-  std::string contents(contentVec.begin(), contentVec.end());
-  auto pos = contents.find('\0') + 1;  // skip "tree <size>\0"
-
-    while (pos < contents.size()) {
-        auto null_pos = contents.find('\0', pos);
-
-        // "40000 banana"
-        std::string_view entry(
-            contents.data() + pos,
-            null_pos - pos
-        );
-
-        auto space_pos = entry.find(' ');
-        std::string_view name = entry.substr(space_pos + 1);
-
-        std::cout << name << '\n';
-
-        // skip '\0' + 20-byte SHA1
-        pos = null_pos + 1 + 20;
-    }
-}
-
-auto ls_tree(std::string_view hash) -> void {
-  auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
-
-  zstr::ifstream file(path);
-  if (!file) {
-    std::cerr << "Failed to open: " << path << '\n';
-    return;
-  }
-  std::string contents((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
-  file.close();
-  auto pos = contents.find('\0') + 1;
-
-while (pos < contents.size()) {
-    auto null_pos = contents.find('\0', pos);
-
-    std::string_view entry(
-        contents.data() + pos,
-        null_pos - pos
-    );
-
-    auto space_pos = entry.find(' ');
-
-    std::string mode(entry.substr(0, space_pos));
-    std::string name(entry.substr(space_pos + 1));
-
-    const unsigned char* sha =
-        reinterpret_cast<const unsigned char*>(
-            contents.data() + null_pos + 1
-        );
-
-    std::stringstream ss;
-
-    for (int i = 0; i < 20; i++) {
-        ss << std::hex
-           << std::setw(2)
-           << std::setfill('0')
-           << static_cast<int>(sha[i]);
-    }
-
-    std::string type =
-        (mode == "40000") ? "tree" : "blob";
-
-    std::cout
-        << mode << ' '
-        << type << ' '
-        << ss.str() << ' '
-        << name << '\n';
-
-    pos = null_pos + 1 + 20;
-}
-}
-
-auto writeTree(const fs::path &dirPath) -> void {
+std::string writeTreeObject(const fs::path &dirPath) {
     std::vector<std::tuple<std::string, std::string, std::string>> entries;
 
-    for (auto &entry : fs::directory_iterator(dirPath)) {
+    for (const auto &entry : fs::directory_iterator(dirPath)) {
         if (entry.path().filename() == ".git") continue;
 
         std::string name = entry.path().filename().string();
         if (entry.is_directory()) {
-            std::string sha = writeTree(entry.path());
+            std::string sha = writeTreeObject(entry.path());
             entries.push_back({"40000", name, sha});
         } else if (entry.is_regular_file()) {
             std::vector<unsigned char> contentVec = readFile(entry.path().string());
             std::string content(contentVec.begin(), contentVec.end());
-            std::string sha = writeBlob(content);
+            std::string sha = writeObject("blob", content);
 
             fs::perms p = entry.status().permissions();
             std::string mode = (p & fs::perms::owner_exec) != fs::perms::none ? "100755" : "100644";
@@ -238,35 +126,132 @@ auto writeTree(const fs::path &dirPath) -> void {
         }
     }
 
-    std::sort(entries.begin(), entries.end(), [](auto &a, auto &b) { return std::get<1>(a) < std::get<1>(b); });
+    std::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) {
+        return std::get<1>(a) < std::get<1>(b);
+    });
 
     std::string data;
-    for (auto &[mode, name, sha] : entries) {
+    for (const auto &[mode, name, sha] : entries) {
         data += mode + " " + name + '\0';
         for (size_t i = 0; i < 20; ++i) {
             unsigned int byte;
             std::stringstream ss;
-            ss << std::hex << sha.substr(i*2, 2);
+            ss << std::hex << sha.substr(i * 2, 2);
             ss >> byte;
             data.push_back(static_cast<char>(byte));
         }
     }
 
-    std::string header = "tree " + std::to_string(data.size()) + '\0';
-    std::string storeData = header + data;
-
-    std::string sha = sha1Hex(storeData);
-    std::vector<unsigned char> compressed = compressZlib(storeData);
-
-    std::string dir = ".git/objects/" + sha.substr(0, 2);
-    std::filesystem::create_directories(dir);
-
-    std::string path = dir + "/" + sha.substr(2);
-    std::ofstream out(path, std::ios::binary);
-    if (!out) throw std::runtime_error("Failed to write tree object");
-    out.write(reinterpret_cast<const char*>(compressed.data()), compressed.size());
-    out.close();
-
-    std::cout << sha << "\n";
+    return writeObject("tree", data);
 }
+
+std::string readAndDecompressObject(std::string_view hash) {
+    auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
+
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("Failed to open: " + path);
+
+    std::vector<unsigned char> compressed((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return decompressZlib(compressed);
 }
+
+} // namespace
+
+namespace git {
+
+auto init() -> void {
+    try {
+        std::filesystem::create_directory(".git");
+        std::filesystem::create_directory(".git/objects");
+        std::filesystem::create_directory(".git/refs");
+
+        std::ofstream headFile(".git/HEAD");
+        if (headFile.is_open()) {
+            headFile << "ref: refs/heads/main\n";
+        } else {
+            std::cerr << "Failed to create .git/HEAD file.\n";
+        }
+
+        std::cout << "Initialized git directory\n";
+    } catch (const std::filesystem::filesystem_error &e) {
+        std::cerr << e.what() << '\n';
+    }
+}
+
+auto cat_file(std::string_view hash) -> void {
+    try {
+        std::string contents = readAndDecompressObject(hash);
+        auto header_size = contents.find('\0');
+        if (header_size == std::string::npos) {
+            throw std::runtime_error("Invalid object contents");
+        }
+        std::cout << std::string_view(contents.data() + header_size + 1, contents.size() - header_size - 1);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << '\n';
+    }
+}
+
+auto hash_object(std::string filename) -> void {
+    std::vector<unsigned char> contentVec = readFile(filename);
+    std::string content(contentVec.begin(), contentVec.end());
+    std::cout << writeObject("blob", content) << "\n";
+}
+
+auto ls_tree_name_only(std::string_view hash) -> void {
+    try {
+        std::string contents = readAndDecompressObject(hash);
+        auto pos = contents.find('\0');
+        if (pos == std::string::npos) throw std::runtime_error("Invalid tree object");
+        pos += 1;
+
+        while (pos < contents.size()) {
+            auto null_pos = contents.find('\0', pos);
+            if (null_pos == std::string::npos || null_pos + 21 > contents.size()) break;
+
+            std::string_view entry(contents.data() + pos, null_pos - pos);
+            auto space_pos = entry.find(' ');
+            std::cout << entry.substr(space_pos + 1) << '\n';
+            pos = null_pos + 1 + 20;
+        }
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << '\n';
+    }
+}
+
+auto ls_tree(std::string_view hash) -> void {
+    try {
+        std::string contents = readAndDecompressObject(hash);
+        auto pos = contents.find('\0');
+        if (pos == std::string::npos) throw std::runtime_error("Invalid tree object");
+        pos += 1;
+
+        while (pos < contents.size()) {
+            auto null_pos = contents.find('\0', pos);
+            if (null_pos == std::string::npos || null_pos + 21 > contents.size()) break;
+
+            std::string_view entry(contents.data() + pos, null_pos - pos);
+            auto space_pos = entry.find(' ');
+
+            std::string mode(entry.substr(0, space_pos));
+            std::string name(entry.substr(space_pos + 1));
+
+            const unsigned char *sha = reinterpret_cast<const unsigned char *>(contents.data() + null_pos + 1);
+            std::stringstream ss;
+            for (int i = 0; i < 20; i++) {
+                ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(sha[i]);
+            }
+
+            std::string type = (mode == "40000") ? "tree" : "blob";
+            std::cout << mode << ' ' << type << ' ' << ss.str() << ' ' << name << '\n';
+            pos = null_pos + 1 + 20;
+        }
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << '\n';
+    }
+}
+
+auto writeTree(const fs::path &dirPath) -> void {
+    std::cout << writeTreeObject(dirPath) << "\n";
+}
+
+} // namespace git

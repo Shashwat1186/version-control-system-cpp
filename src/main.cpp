@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
   }
   else if (command == "write-tree") {
       std::string sha = writeTree(fs::current_path());
-      std::cout << sha << "\n";
+      
   }
   else {
     std::cerr << "Unknown command " << command << '\n';

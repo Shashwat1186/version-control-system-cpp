@@ -136,7 +136,7 @@ auto hash_object(std::string filename) -> void {
     out.write(reinterpret_cast<const char*>(compressed.data()), compressed.size());
     out.close();
 
-    return sha;
+    std::cout << sha << "\n";
 }
 
 auto ls_tree_name_only(std::string_view hash) -> void {
@@ -267,6 +267,6 @@ auto writeTree(const fs::path &dirPath) -> void {
     out.write(reinterpret_cast<const char*>(compressed.data()), compressed.size());
     out.close();
 
-    return sha;
+    std::cout << sha << "\n";
 }
 }

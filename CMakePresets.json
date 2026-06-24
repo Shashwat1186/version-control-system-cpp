@@ -4,13 +4,13 @@
     {
       "name": "default",
       "displayName": "Default Config",
-      "description": "Default build using MSVC compiler",
-      "generator": "Visual Studio 17 2022",
+      "description": "Default build using MinGW Makefiles",
+      "generator": "MinGW Makefiles",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows",
-        "VCPKG_HOST_TRIPLET": "x64-windows"
+        "CMAKE_PREFIX_PATH": "C:/msys64/ucrt64",
+        "OPENSSL_ROOT_DIR": "C:/msys64/ucrt64",
+        "ZLIB_ROOT": "C:/msys64/ucrt64"
       },
       "binaryDir": "${sourceDir}/build",
       "condition": {

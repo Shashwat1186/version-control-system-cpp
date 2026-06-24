@@ -14,7 +14,7 @@ set -e # Exit early if any commands fail
 # - Edit .codecrafters/compile.sh to change how your program compiles remotely
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake
+  cmake -G "MinGW Makefiles" -B build -S . -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64 -DOPENSSL_ROOT_DIR=C:/msys64/ucrt64 -DZLIB_ROOT=C:/msys64/ucrt64
   cmake --build ./build
 )
 

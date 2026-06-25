@@ -76,14 +76,18 @@ namespace {
             if (cmd & 0x80) { // Copy instruction
                 size_t offset = 0;
                 size_t size = 0;
-                if (cmd & 0x01) offset |= static_cast<size_t>(delta[pos++]);
-                if (cmd & 0x02) offset |= static_cast<size_t>(delta[pos++]) << 8;
-                if (cmd & 0x04) offset |= static_cast<size_t>(delta[pos++]) << 16;
-                if (cmd & 0x08) offset |= static_cast<size_t>(delta[pos++]) << 24;
-                if (cmd & 0x10) size |= static_cast<size_t>(delta[pos++]);
-                if (cmd & 0x20) size |= static_cast<size_t>(delta[pos++]) << 8;
-                if (cmd & 0x40) size |= static_cast<size_t>(delta[pos++]) << 16;
+                if (cmd & 0x01) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++]));
+                if (cmd & 0x02) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 8;
+                if (cmd & 0x04) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 16;
+                if (cmd & 0x08) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 24;
+                if (cmd & 0x10) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++]));
+                if (cmd & 0x20) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 8;
+                if (cmd & 0x40) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 16;
                 if (size == 0) size = 0x10000;
+
+                if (offset > base.size() || offset + size > base.size()) {
+                    throw std::runtime_error("Delta copy out of bounds");
+                }
                 
                 result.append(base, offset, size);
             } else { // Insert instruction

@@ -1,23 +1,129 @@
 #include "git_commands.hpp"
 #include "git_objects.hpp"
-#include "utils.hpp"
 #include "network.hpp"
 #include "packfile.hpp"
 #include "checkout.hpp"
+#include "utils.hpp"
 
-#include <iostream>
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+std::string readLooseObject(std::string_view hash) {
+    auto path = std::string(".git/objects/") + std::string(hash.substr(0, 2)) + "/" + std::string(hash.substr(2));
+
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("Failed to open: " + path);
+
+    std::vector<unsigned char> compressed((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return git::utils::decompressZlib(compressed);
+}
+
+std::string writeLooseObject(const std::string &type, const std::string &content) {
+    std::string header = type + " " + std::to_string(content.size()) + '\0';
+    std::string storeData = header + content;
+    std::string sha = git::utils::sha1Hex(storeData);
+
+    std::vector<unsigned char> compressed = git::utils::compressZlib(storeData);
+
+    std::string dir = ".git/objects/" + sha.substr(0, 2);
+    fs::create_directories(dir);
+
+    std::string path = dir + "/" + sha.substr(2);
+    std::ofstream out(path, std::ios::binary);
+    if (!out) throw std::runtime_error("Failed to write " + type + " object");
+    out.write(reinterpret_cast<const char *>(compressed.data()), compressed.size());
+    return sha;
+}
+
+std::string writeTreeRecursive(const fs::path &dirPath) {
+    std::vector<std::tuple<std::string, std::string, std::string>> entries;
+
+    for (const auto &entry : fs::directory_iterator(dirPath)) {
+        if (entry.path().filename() == ".git") continue;
+
+        std::string name = entry.path().filename().string();
+        if (entry.is_directory()) {
+            entries.push_back({"40000", name, writeTreeRecursive(entry.path())});
+        } else if (entry.is_regular_file()) {
+            std::vector<unsigned char> contentVec = git::utils::readFile(entry.path().string());
+            std::string content(contentVec.begin(), contentVec.end());
+            std::string mode = (entry.status().permissions() & fs::perms::owner_exec) != fs::perms::none ? "100755" : "100644";
+            entries.push_back({mode, name, writeLooseObject("blob", content)});
+        }
+    }
+
+    std::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) {
+        return std::get<1>(a) < std::get<1>(b);
+    });
+
+    std::string data;
+    for (const auto &[mode, name, sha] : entries) {
+        data += mode + " " + name + '\0';
+        for (size_t i = 0; i < 20; ++i) {
+            unsigned int byte;
+            std::stringstream ss;
+            ss << std::hex << sha.substr(i * 2, 2);
+            ss >> byte;
+            data.push_back(static_cast<char>(byte));
+        }
+    }
+
+    return writeLooseObject("tree", data);
+}
+
+} // namespace
+
+namespace git::objects {
+
+std::string readAndDecompressObject(std::string_view hash) {
+    return readLooseObject(hash);
+}
+
+std::string writeObject(const std::string &type, const std::string &content) {
+    return writeLooseObject(type, content);
+}
+
+std::string writeTreeObject(const std::filesystem::path &dirPath) {
+    return writeTreeRecursive(dirPath);
+}
+
+std::string writeCommitObject(const std::string &treeSha, const std::string &parentSha, const std::string &message) {
+    std::string commitData;
+    commitData += "tree " + treeSha + '\n';
+    if (!parentSha.empty()) {
+        commitData += "parent " + parentSha + '\n';
+    }
+    std::string timestamp = git::utils::getCurrentTimestamp();
+    commitData += "author Codecrafters <codecrafters@example.com> " + timestamp + '\n';
+    commitData += "committer Codecrafters <codecrafters@example.com> " + timestamp + "\n\n";
+    commitData += message;
+    commitData += '\n';
+
+    return writeLooseObject("commit", commitData);
+}
+
+} // namespace git::objects
 
 namespace git {
 
 void init() {
     try {
-        std::filesystem::create_directory(".git");
-        std::filesystem::create_directory(".git/objects");
-        std::filesystem::create_directory(".git/refs");
+        fs::create_directory(".git");
+        fs::create_directory(".git/objects");
+        fs::create_directory(".git/refs");
 
         std::ofstream headFile(".git/HEAD");
         if (headFile.is_open()) {
@@ -27,7 +133,7 @@ void init() {
         }
 
         std::cout << "Initialized git directory\n";
-    } catch (const std::filesystem::filesystem_error &e) {
+    } catch (const fs::filesystem_error &e) {
         std::cerr << e.what() << '\n';
     }
 }
@@ -108,26 +214,18 @@ void write_tree(const std::filesystem::path &dirPath) {
     std::cout << git::objects::writeTreeObject(dirPath) << "\n";
 }
 
-void commit_tree(const std::string& treeSha, const std::string& parentSha, const std::string& message) {
+void commit_tree(const std::string &treeSha, const std::string &parentSha, const std::string &message) {
     std::cout << git::objects::writeCommitObject(treeSha, parentSha, message) << '\n';
 }
 
-void clone(const std::string& url, const std::string& dir) {
-    // 1. Create target directory and initialize git repository
+void clone(const std::string &url, const std::string &dir) {
     std::filesystem::create_directories(dir);
     std::filesystem::current_path(dir);
     init();
 
-    // 2. Discover refs and get the HEAD commit SHA-1
     std::string head_sha = git::network::discoverRefs(url);
-
-    // 3. Negotiate and fetch the packfile
     std::vector<unsigned char> packfile = git::network::fetchPackfile(url, head_sha);
-
-    // 4. Parse the packfile, resolve deltas, and write loose objects to .git/objects
     git::packfile::process(packfile);
-
-    // 5. Read the HEAD commit, recursively parse its tree, and write files to the working directory
     git::checkout::workingTree(head_sha);
 }
 

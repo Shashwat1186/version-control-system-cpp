@@ -11,6 +11,7 @@ find_package(CURL REQUIRED)
 
 # Add source files
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
+list(FILTER SOURCES EXCLUDE REGEX "src/git_commands\.cpp$")
 
 # Create the executable
 add_executable(git ${SOURCES})

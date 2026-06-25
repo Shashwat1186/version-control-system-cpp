@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <filesystem>
 
 namespace git::checkout {
 
@@ -27,45 +28,9 @@ static void clearWorkingDirectory(const std::filesystem::path& root) {
     }
 }
 
-// --- CheckoutEngine Implementation ---
-
-CheckoutEngine::CheckoutEngine() : workingRoot_(std::filesystem::current_path()) {}
-
-CheckoutEngine::CheckoutEngine(std::filesystem::path workingRoot) 
-    : workingRoot_(std::move(workingRoot)) {}
-
-void CheckoutEngine::workingTree(const std::string &commit_sha) const {
-    git::objects::ObjectStore store(workingRoot_ / ".git", workingRoot_ / ".git" / "objects");
-
-    // 1. Read and parse the commit object
-    std::string commit_data;
-    try {
-        commit_data = store.readAndDecompressObject(commit_sha);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to read commit object. Ensure you passed a valid commit SHA.\n";
-        throw;
-    }
-
-    // Git commit format: "commit <size>\0tree <40-char-sha>\n..."
-    size_t null_pos = commit_data.find('\0');
-    if (null_pos == std::string::npos) throw std::runtime_error("Invalid commit object format");
-
-    size_t tree_pos = commit_data.find("tree ", null_pos);
-    if (tree_pos == std::string::npos) throw std::runtime_error("Commit object missing tree hash");
-
-    std::string tree_sha = commit_data.substr(tree_pos + 5, 40);
-
-    // 2. Clear current working directory (excluding .git)
-    clearWorkingDirectory(workingRoot_);
-
-    // 3. Recursively reconstruct the tree structure
-    processTree(tree_sha, workingRoot_);
-    
-    std::cout << "Successfully checked out commit " << commit_sha << "\n";
-}
-
-void CheckoutEngine::processTree(const std::string &treeSha, const std::filesystem::path &currentDir) const {
-    git::objects::ObjectStore store(workingRoot_ / ".git", workingRoot_ / ".git" / "objects");
+// Recursively reconstruct the tree structure
+static void processTree(const std::string &treeSha, const std::filesystem::path &currentDir, const std::filesystem::path &workingRoot) {
+    git::objects::ObjectStore store(workingRoot / ".git", workingRoot / ".git" / "objects");
     std::string tree_data = store.readAndDecompressObject(treeSha);
 
     // Skip the header "tree <size>\0"
@@ -95,7 +60,7 @@ void CheckoutEngine::processTree(const std::string &treeSha, const std::filesyst
         if (mode == "40000" || mode == "040000") { 
             // It's a directory
             std::filesystem::create_directories(target_path);
-            processTree(hex_sha, target_path);
+            processTree(hex_sha, target_path, workingRoot);
         } else { 
             // It's a file blob (e.g., 100644)
             std::string blob_data = store.readAndDecompressObject(hex_sha);
@@ -115,11 +80,37 @@ void CheckoutEngine::processTree(const std::string &treeSha, const std::filesyst
     }
 }
 
-// --- Free Function Wrapper ---
+// --- Main Function ---
 
 void workingTree(const std::string& commit_sha) {
-    CheckoutEngine engine;
-    engine.workingTree(commit_sha);
+    std::filesystem::path workingRoot = std::filesystem::current_path();
+    git::objects::ObjectStore store(workingRoot / ".git", workingRoot / ".git" / "objects");
+
+    // 1. Read and parse the commit object
+    std::string commit_data;
+    try {
+        commit_data = store.readAndDecompressObject(commit_sha);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to read commit object. Ensure you passed a valid commit SHA.\n";
+        throw;
+    }
+
+    // Git commit format: "commit <size>\0tree <40-char-sha>\n..."
+    size_t null_pos = commit_data.find('\0');
+    if (null_pos == std::string::npos) throw std::runtime_error("Invalid commit object format");
+
+    size_t tree_pos = commit_data.find("tree ", null_pos);
+    if (tree_pos == std::string::npos) throw std::runtime_error("Commit object missing tree hash");
+
+    std::string tree_sha = commit_data.substr(tree_pos + 5, 40);
+
+    // 2. Clear current working directory (excluding .git)
+    clearWorkingDirectory(workingRoot);
+
+    // 3. Recursively reconstruct the tree structure
+    processTree(tree_sha, workingRoot, workingRoot);
+    
+    std::cout << "Successfully checked out commit " << commit_sha << "\n";
 }
 
 } // namespace git::checkout

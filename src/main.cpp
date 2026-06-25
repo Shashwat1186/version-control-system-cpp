@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include "git_commands.hpp"
+#include "checkout.hpp"
+#include "branch.hpp"
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -64,10 +66,42 @@ int main(int argc, char *argv[]) {
                 std::cerr << "Usage: mygit clone <url> <directory>\n";
                 return 1;
             }
-        } else {
-            std::cerr << "Unknown command: " << command << '\n';
-            return 1;
+        } 
+        else if (command == "branch") {
+          if (argc == 2) {
+              // List branches
+              std::vector<std::string> branches = git::branch::Branch::get_all();
+              std::string current = git::branch::Branch::get_current();
+              
+              for (const auto& b : branches) {
+                  if (b == current) {
+                      std::cout << "* " << b << "\n";
+                  } else {
+                      std::cout << "  " << b << "\n";
+                  }
+              }
+          } else if (argc == 3) {
+              // Create new branch
+              git::branch::Branch new_branch(argv[2]);
+              new_branch.create_from_head();
+          } else {
+              std::cerr << "Usage: mygit branch [<branch_name>]\n";
+              return 1;
+          }
+        } 
+        else if (command == "checkout") {
+          if (argc == 3) {
+              // Uses your provided checkout.hpp wrapper function
+              git::checkout::workingTree(argv[2]); 
+          } else {
+              std::cerr << "Usage: mygit checkout <commit_sha>\n";
+              return 1;
+          }
+          else {
+              std::cerr << "Unknown command: " << command << '\n';
+              return 1;
         }
+        
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << '\n';
         return 1;

@@ -233,19 +233,23 @@ public:
 namespace git::objects {
 
 std::string readAndDecompressObject(std::string_view hash) {
-    return ObjectStore::readAndDecompressObject(hash);
+    ObjectStore store;
+    return store.readAndDecompressObject(hash);
 }
 
 std::string writeObject(const std::string &type, const std::string &content) {
-    return ObjectStore::writeObject(type, content);
+    ObjectStore store;
+    return store.writeObject(type, content);
 }
 
 std::string writeTreeObject(const std::filesystem::path &dirPath) {
-    return ObjectStore::writeTreeObject(dirPath);
+    ObjectStore store;
+    return store.writeTreeObject(dirPath);
 }
 
 std::string writeCommitObject(const std::string &treeSha, const std::string &parentSha, const std::string &message) {
-    return ObjectStore::writeCommitObject(treeSha, parentSha, message);
+    ObjectStore store;
+    return store.writeCommitObject(treeSha, parentSha, message);
 }
 
 } // namespace git::objects

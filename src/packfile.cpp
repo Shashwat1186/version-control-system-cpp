@@ -1,9 +1,5 @@
 #include "packfile.hpp"
 #include "git_objects.hpp"
-#include "utils.hpp"
-#include <iostream>
-#include "packfile.hpp"
-#include "git_objects.hpp"
 
 #include <cstdint>
 #include <iomanip>
@@ -12,6 +8,8 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
+
 #include <zlib.h>
 
 namespace git::packfile {
@@ -217,7 +215,5 @@ private:
 void process(const std::vector<unsigned char> &packData) {
     PackfileProcessor{}.process(packData);
 }
-
-} // namespace git::packfile
 
 } // namespace git::packfile

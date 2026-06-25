@@ -2,35 +2,136 @@
 #include "git_objects.hpp"
 #include "utils.hpp"
 #include <iostream>
-#include <string>
-#include <map>
-#include <stdexcept>
+#include "packfile.hpp"
+#include "git_objects.hpp"
+
+#include <cstdint>
 #include <iomanip>
+#include <map>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <utility>
 #include <zlib.h>
 
 namespace git::packfile {
 
 namespace {
 
+class PackfileProcessor {
+public:
+    void process(const std::vector<unsigned char> &packData) const {
+        if (packData.size() < 12) throw std::runtime_error("Packfile too small");
+
+        if (packData[0] != 'P' || packData[1] != 'A' || packData[2] != 'C' || packData[3] != 'K') {
+            throw std::runtime_error("Invalid packfile signature");
+        }
+
+        uint32_t objectCount = (static_cast<uint32_t>(packData[8]) << 24) |
+                               (static_cast<uint32_t>(packData[9]) << 16) |
+                               (static_cast<uint32_t>(packData[10]) << 8) |
+                               static_cast<uint32_t>(packData[11]);
+
+        size_t pos = 12;
+        std::map<size_t, ParsedObject> objectsByOffset;
+        std::map<std::string, ParsedObject> objectsBySha;
+
+        for (uint32_t i = 0; i < objectCount; ++i) {
+            size_t objectOffset = pos;
+
+            unsigned char c = packData[pos++];
+            int type = (c >> 4) & 7;
+            size_t size = c & 15;
+            size_t shift = 4;
+
+            while (c & 0x80) {
+                c = packData[pos++];
+                size |= static_cast<size_t>(c & 0x7F) << shift;
+                shift += 7;
+            }
+
+            if (type >= 1 && type <= 4) {
+                auto [data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
+                pos += consumed;
+
+                std::string typeStr = getTypeName(type);
+                objectsByOffset[objectOffset] = {typeStr, data};
+                std::string sha = git::objects::writeObject(typeStr, data);
+                objectsBySha[sha] = {typeStr, data};
+            } else if (type == 6) {
+                size_t negativeOffset = 0;
+                c = packData[pos++];
+                negativeOffset = c & 0x7F;
+                while (c & 0x80) {
+                    negativeOffset++;
+                    c = packData[pos++];
+                    negativeOffset = (negativeOffset << 7) + (c & 0x7F);
+                }
+
+                size_t baseOffset = objectOffset - negativeOffset;
+                auto [deltaData, consumed] = decompressStream(&packData[pos], packData.size() - pos);
+                pos += consumed;
+
+                if (objectsByOffset.find(baseOffset) == objectsByOffset.end()) {
+                    throw std::runtime_error("OFS_DELTA base not found in current pack");
+                }
+
+                const auto &baseObject = objectsByOffset[baseOffset];
+                std::string resolvedData = applyDelta(baseObject.data, deltaData);
+
+                objectsByOffset[objectOffset] = {baseObject.type, resolvedData};
+                std::string sha = git::objects::writeObject(baseObject.type, resolvedData);
+                objectsBySha[sha] = {baseObject.type, resolvedData};
+            } else if (type == 7) {
+                std::stringstream shaStream;
+                for (int j = 0; j < 20; ++j) {
+                    shaStream << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(packData[pos++]);
+                }
+                std::string baseSha = shaStream.str();
+
+                auto [deltaData, consumed] = decompressStream(&packData[pos], packData.size() - pos);
+                pos += consumed;
+
+                ParsedObject baseObject;
+                if (objectsBySha.find(baseSha) != objectsBySha.end()) {
+                    baseObject = objectsBySha[baseSha];
+                } else {
+                    std::string raw = git::objects::readAndDecompressObject(baseSha);
+                    size_t nullPos = raw.find('\0');
+                    std::string header = raw.substr(0, nullPos);
+                    baseObject.type = header.substr(0, header.find(' '));
+                    baseObject.data = raw.substr(nullPos + 1);
+                }
+
+                std::string resolvedData = applyDelta(baseObject.data, deltaData);
+
+                objectsByOffset[objectOffset] = {baseObject.type, resolvedData};
+                std::string sha = git::objects::writeObject(baseObject.type, resolvedData);
+                objectsBySha[sha] = {baseObject.type, resolvedData};
+            } else {
+                throw std::runtime_error("Unsupported object type: " + std::to_string(type));
+            }
+        }
+    }
+
+private:
     struct ParsedObject {
         std::string type;
         std::string data;
     };
 
-    // Helper to decompress a single object from a stream and return consumed bytes
-    std::pair<std::string, size_t> decompressStream(const unsigned char* data, size_t max_size) {
+    static std::pair<std::string, size_t> decompressStream(const unsigned char *data, size_t maxSize) {
         z_stream zs{};
         if (inflateInit(&zs) != Z_OK) throw std::runtime_error("inflateInit failed");
 
-        zs.next_in = const_cast<Bytef*>(data);
-        zs.avail_in = static_cast<uInt>(max_size);
+        zs.next_in = const_cast<Bytef *>(data);
+        zs.avail_in = static_cast<uInt>(maxSize);
 
         std::string out;
         char temp[4096];
         int ret;
         do {
-            zs.next_out = reinterpret_cast<Bytef*>(temp);
+            zs.next_out = reinterpret_cast<Bytef *>(temp);
             zs.avail_out = sizeof(temp);
 
             ret = inflate(&zs, Z_NO_FLUSH);
@@ -46,11 +147,11 @@ namespace {
         return {out, consumed};
     }
 
-    size_t readDeltaSize(const std::string& delta, size_t& pos) {
+    static size_t readDeltaSize(const std::string &delta, size_t &pos) {
         size_t size = 0;
         size_t shift = 0;
         while (pos < delta.size()) {
-            unsigned char c = delta[pos++];
+            unsigned char c = static_cast<unsigned char>(delta[pos++]);
             size |= static_cast<size_t>(c & 0x7F) << shift;
             shift += 7;
             if ((c & 0x80) == 0) break;
@@ -58,22 +159,22 @@ namespace {
         return size;
     }
 
-    std::string applyDelta(const std::string& base, const std::string& delta) {
+    static std::string applyDelta(const std::string &base, const std::string &delta) {
         size_t pos = 0;
-        // The first two variable-length integers are the source and target sizes.
-        size_t base_size = readDeltaSize(delta, pos);
-        size_t target_size = readDeltaSize(delta, pos);
+        size_t baseSize = readDeltaSize(delta, pos);
+        size_t targetSize = readDeltaSize(delta, pos);
 
-        if (base_size != base.size()) {
+        if (baseSize != base.size()) {
             throw std::runtime_error("Delta base size mismatch");
         }
 
         std::string result;
-        result.reserve(target_size);
+        result.reserve(targetSize);
 
         while (pos < delta.size()) {
-            unsigned char cmd = delta[pos++];
-            if (cmd & 0x80) { // Copy instruction
+            unsigned char cmd = static_cast<unsigned char>(delta[pos++]);
+
+            if (cmd & 0x80) {
                 size_t offset = 0;
                 size_t size = 0;
                 if (cmd & 0x01) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++]));
@@ -83,23 +184,24 @@ namespace {
                 if (cmd & 0x10) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++]));
                 if (cmd & 0x20) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 8;
                 if (cmd & 0x40) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 16;
-                if (size == 0) size = 0x10000;
 
+                if (size == 0) size = 0x10000;
                 if (offset > base.size() || offset + size > base.size()) {
                     throw std::runtime_error("Delta copy out of bounds");
                 }
-                
+
                 result.append(base, offset, size);
-            } else { // Insert instruction
-                size_t size = cmd & 0x7F;
-                result.append(delta, pos, size);
-                pos += size;
+            } else {
+                size_t insertSize = cmd & 0x7F;
+                result.append(delta, pos, insertSize);
+                pos += insertSize;
             }
         }
+
         return result;
     }
 
-    std::string getTypeName(int type) {
+    static std::string getTypeName(int type) {
         switch (type) {
             case 1: return "commit";
             case 2: return "tree";
@@ -108,105 +210,14 @@ namespace {
             default: throw std::runtime_error("Unknown object type: " + std::to_string(type));
         }
     }
+};
+
 } // namespace
 
-void process(const std::vector<unsigned char>& packData) {
-    if (packData.size() < 12) throw std::runtime_error("Packfile too small");
-
-    // Verify "PACK" signature
-    if (packData[0] != 'P' || packData[1] != 'A' || packData[2] != 'C' || packData[3] != 'K') {
-        throw std::runtime_error("Invalid packfile signature");
-    }
-
-    // Number of objects (bytes 8-11, network byte order)
-    uint32_t obj_count = (packData[8] << 24) | (packData[9] << 16) | (packData[10] << 8) | packData[11];
-
-    size_t pos = 12; // Start immediately after header
-    std::map<size_t, ParsedObject> objectsByOffset;
-    std::map<std::string, ParsedObject> objectsBySha;
-
-    for (uint32_t i = 0; i < obj_count; ++i) {
-        size_t obj_offset = pos;
-
-        unsigned char c = packData[pos++];
-        int type = (c >> 4) & 7;
-        size_t size = c & 15;
-        size_t shift = 4;
-
-        while (c & 0x80) {
-            c = packData[pos++];
-            size |= static_cast<size_t>(c & 0x7F) << shift;
-            shift += 7;
-        }
-
-        if (type >= 1 && type <= 4) {
-            // Standard objects (commit, tree, blob, tag)
-            auto [data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
-            pos += consumed;
-
-            std::string typeStr = getTypeName(type);
-            objectsByOffset[obj_offset] = {typeStr, data};
-            std::string sha = git::objects::writeObject(typeStr, data);
-            objectsBySha[sha] = {typeStr, data};
-
-        } else if (type == 6) { 
-            // OFS_DELTA
-            size_t negative_offset = 0;
-            c = packData[pos++];
-            negative_offset = c & 0x7F;
-            while (c & 0x80) {
-                negative_offset++;
-                c = packData[pos++];
-                negative_offset = (negative_offset << 7) + (c & 0x7F);
-            }
-
-            size_t base_offset = obj_offset - negative_offset;
-            auto [delta_data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
-            pos += consumed;
-
-            if (objectsByOffset.find(base_offset) == objectsByOffset.end()) {
-                throw std::runtime_error("OFS_DELTA base not found in current pack");
-            }
-            
-            const auto& base_obj = objectsByOffset[base_offset];
-            std::string resolved_data = applyDelta(base_obj.data, delta_data);
-            
-            objectsByOffset[obj_offset] = {base_obj.type, resolved_data};
-            std::string sha = git::objects::writeObject(base_obj.type, resolved_data);
-            objectsBySha[sha] = {base_obj.type, resolved_data};
-
-        } else if (type == 7) {
-            // REF_DELTA
-            std::stringstream sha_ss;
-            for (int j = 0; j < 20; ++j) {
-                sha_ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(packData[pos++]);
-            }
-            std::string base_sha = sha_ss.str();
-
-            auto [delta_data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
-            pos += consumed;
-
-            ParsedObject base_obj;
-            if (objectsBySha.find(base_sha) != objectsBySha.end()) {
-                base_obj = objectsBySha[base_sha];
-            } else {
-                // If base is not in memory, it might already exist in .git/objects
-                std::string raw = git::objects::readAndDecompressObject(base_sha);
-                size_t null_pos = raw.find('\0');
-                std::string header = raw.substr(0, null_pos);
-                base_obj.type = header.substr(0, header.find(' '));
-                base_obj.data = raw.substr(null_pos + 1);
-            }
-
-            std::string resolved_data = applyDelta(base_obj.data, delta_data);
-            
-            objectsByOffset[obj_offset] = {base_obj.type, resolved_data};
-            std::string sha = git::objects::writeObject(base_obj.type, resolved_data);
-            objectsBySha[sha] = {base_obj.type, resolved_data};
-        } else {
-            throw std::runtime_error("Unsupported object type: " + std::to_string(type));
-        }
-    }
+void process(const std::vector<unsigned char> &packData) {
+    PackfileProcessor{}.process(packData);
 }
+
+} // namespace git::packfile
 
 } // namespace git::packfile

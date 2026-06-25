@@ -12,8 +12,26 @@ namespace fs = std::filesystem;
 namespace git::checkout {
 
 namespace {
-    void processTree(const std::string& tree_sha, const fs::path& current_dir) {
-        std::string contents = git::objects::readAndDecompressObject(tree_sha);
+
+class CheckoutEngine {
+public:
+    void workingTree(const std::string &commitSha) {
+        std::string commitData = git::objects::readAndDecompressObject(commitSha);
+
+        auto nullPos = commitData.find('\0');
+        if (nullPos == std::string::npos) throw std::runtime_error("Invalid commit object");
+        std::string content = commitData.substr(nullPos + 1);
+
+        size_t treePos = content.find("tree ");
+        if (treePos == std::string::npos) throw std::runtime_error("No tree found in commit");
+
+        std::string treeSha = content.substr(treePos + 5, 40);
+        processTree(treeSha, fs::current_path());
+    }
+
+private:
+    void processTree(const std::string &treeSha, const fs::path &currentDir) {
+        std::string contents = git::objects::readAndDecompressObject(treeSha);
         auto pos = contents.find('\0');
         if (pos == std::string::npos) throw std::runtime_error("Invalid tree object");
         pos += 1;
@@ -35,7 +53,7 @@ namespace {
             }
             std::string sha = ss.str();
 
-            fs::path target_path = current_dir / name;
+            fs::path target_path = currentDir / name;
 
             if (mode == "40000") { 
                 // It's a directory (tree)
@@ -67,21 +85,7 @@ namespace {
 } // namespace
 
 void workingTree(const std::string& commit_sha) {
-    std::string commit_data = git::objects::readAndDecompressObject(commit_sha);
-    
-    // Skip the "commit <size>\0" header
-    auto null_pos = commit_data.find('\0');
-    if (null_pos == std::string::npos) throw std::runtime_error("Invalid commit object");
-    std::string content = commit_data.substr(null_pos + 1);
-    
-    // Find the tree SHA
-    size_t tree_pos = content.find("tree ");
-    if (tree_pos == std::string::npos) throw std::runtime_error("No tree found in commit");
-    
-    std::string tree_sha = content.substr(tree_pos + 5, 40);
-    
-    // Recursively check out the tree into the current working directory
-    processTree(tree_sha, fs::current_path());
+    CheckoutEngine{}.workingTree(commit_sha);
 }
 
 } // namespace git::checkout

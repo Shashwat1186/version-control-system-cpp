@@ -1,134 +1,214 @@
-#include "git_commands.hpp"
+#include "packfile.hpp"
 #include "git_objects.hpp"
 #include "utils.hpp"
-#include "network.hpp"   // To be implemented next
-#include "packfile.hpp"  // To be implemented next
-#include "checkout.hpp"  // To be implemented next
-
 #include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
+#include <string>
+#include <map>
 #include <stdexcept>
+#include <iomanip>
+#include <sstream>
+#include <zlib.h>
 
-namespace git {
+namespace git::packfile {
 
-void init() {
-    try {
-        std::filesystem::create_directory(".git");
-        std::filesystem::create_directory(".git/objects");
-        std::filesystem::create_directory(".git/refs");
+namespace {
 
-        std::ofstream headFile(".git/HEAD");
-        if (headFile.is_open()) {
-            headFile << "ref: refs/heads/main\n";
-        } else {
-            std::cerr << "Failed to create .git/HEAD file.\n";
+    struct ParsedObject {
+        std::string type;
+        std::string data;
+    };
+
+    // Helper to decompress a single object from a stream and return consumed bytes
+    std::pair<std::string, size_t> decompressStream(const unsigned char* data, size_t max_size) {
+        z_stream zs{};
+        if (inflateInit(&zs) != Z_OK) throw std::runtime_error("inflateInit failed");
+
+        zs.next_in = const_cast<Bytef*>(data);
+        zs.avail_in = static_cast<uInt>(max_size);
+
+        std::string out;
+        char temp[4096];
+        int ret;
+        do {
+            zs.next_out = reinterpret_cast<Bytef*>(temp);
+            zs.avail_out = sizeof(temp);
+
+            ret = inflate(&zs, Z_NO_FLUSH);
+            if (ret == Z_STREAM_ERROR || ret == Z_DATA_ERROR || ret == Z_MEM_ERROR) {
+                inflateEnd(&zs);
+                throw std::runtime_error("inflate failed during packfile parsing");
+            }
+            out.append(temp, sizeof(temp) - zs.avail_out);
+        } while (ret != Z_STREAM_END);
+
+        size_t consumed = zs.total_in;
+        inflateEnd(&zs);
+        return {out, consumed};
+    }
+
+    size_t readDeltaSize(const std::string& delta, size_t& pos) {
+        size_t size = 0;
+        size_t shift = 0;
+        while (pos < delta.size()) {
+            // Explicitly cast to unsigned char to avoid sign extension
+            unsigned char c = static_cast<unsigned char>(delta[pos++]);
+            size |= static_cast<size_t>(c & 0x7F) << shift;
+            shift += 7;
+            if ((c & 0x80) == 0) break;
+        }
+        return size;
+    }
+
+    std::string applyDelta(const std::string& base, const std::string& delta) {
+        size_t pos = 0;
+        // The first two variable-length integers are the source and target sizes.
+        size_t base_size = readDeltaSize(delta, pos);
+        size_t target_size = readDeltaSize(delta, pos);
+
+        if (base_size != base.size()) {
+            throw std::runtime_error("Delta base size mismatch");
         }
 
-        std::cout << "Initialized git directory\n";
-    } catch (const std::filesystem::filesystem_error &e) {
-        std::cerr << e.what() << '\n';
-    }
-}
+        std::string result;
+        result.reserve(target_size);
 
-void cat_file(std::string_view hash) {
-    try {
-        std::string contents = git::objects::readAndDecompressObject(hash);
-        auto header_size = contents.find('\0');
-        if (header_size == std::string::npos) {
-            throw std::runtime_error("Invalid object contents");
+        while (pos < delta.size()) {
+            // Explicitly cast to unsigned char for all bitwise operations
+            unsigned char cmd = static_cast<unsigned char>(delta[pos++]);
+            
+            if (cmd & 0x80) { // Copy instruction
+                size_t offset = 0;
+                size_t size = 0;
+                
+                // We MUST cast to unsigned char before casting to size_t to prevent sign extension of negative chars
+                if (cmd & 0x01) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++]));
+                if (cmd & 0x02) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 8;
+                if (cmd & 0x04) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 16;
+                if (cmd & 0x08) offset |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 24;
+                if (cmd & 0x10) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++]));
+                if (cmd & 0x20) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 8;
+                if (cmd & 0x40) size |= static_cast<size_t>(static_cast<unsigned char>(delta[pos++])) << 16;
+                
+                if (size == 0) size = 0x10000;
+                
+                result.append(base, offset, size);
+            } else { // Insert instruction
+                size_t size = cmd & 0x7F;
+                result.append(delta, pos, size);
+                pos += size;
+            }
         }
-        std::cout << std::string_view(contents.data() + header_size + 1, contents.size() - header_size - 1);
-    } catch (const std::exception &e) {
-        std::cerr << e.what() << '\n';
+        return result;
     }
-}
 
-void hash_object(std::string filename) {
-    std::vector<unsigned char> contentVec = git::utils::readFile(filename);
-    std::string content(contentVec.begin(), contentVec.end());
-    std::cout << git::objects::writeObject("blob", content) << "\n";
-}
-
-void ls_tree_name_only(std::string_view hash) {
-    try {
-        std::string contents = git::objects::readAndDecompressObject(hash);
-        auto pos = contents.find('\0');
-        if (pos == std::string::npos) throw std::runtime_error("Invalid tree object");
-        pos += 1;
-
-        while (pos < contents.size()) {
-            auto null_pos = contents.find('\0', pos);
-            if (null_pos == std::string::npos || null_pos + 21 > contents.size()) break;
-
-            std::string_view entry(contents.data() + pos, null_pos - pos);
-            auto space_pos = entry.find(' ');
-            std::cout << entry.substr(space_pos + 1) << '\n';
-            pos = null_pos + 1 + 20;
+    std::string getTypeName(int type) {
+        switch (type) {
+            case 1: return "commit";
+            case 2: return "tree";
+            case 3: return "blob";
+            case 4: return "tag";
+            default: throw std::runtime_error("Unknown object type: " + std::to_string(type));
         }
-    } catch (const std::exception &e) {
-        std::cerr << e.what() << '\n';
     }
-}
+} // namespace
 
-void ls_tree(std::string_view hash) {
-    try {
-        std::string contents = git::objects::readAndDecompressObject(hash);
-        auto pos = contents.find('\0');
-        if (pos == std::string::npos) throw std::runtime_error("Invalid tree object");
-        pos += 1;
+void process(const std::vector<unsigned char>& packData) {
+    if (packData.size() < 12) throw std::runtime_error("Packfile too small");
 
-        while (pos < contents.size()) {
-            auto null_pos = contents.find('\0', pos);
-            if (null_pos == std::string::npos || null_pos + 21 > contents.size()) break;
+    // Verify "PACK" signature
+    if (packData[0] != 'P' || packData[1] != 'A' || packData[2] != 'C' || packData[3] != 'K') {
+        throw std::runtime_error("Invalid packfile signature");
+    }
 
-            std::string_view entry(contents.data() + pos, null_pos - pos);
-            auto space_pos = entry.find(' ');
+    // Number of objects (bytes 8-11, network byte order)
+    uint32_t obj_count = (packData[8] << 24) | (packData[9] << 16) | (packData[10] << 8) | packData[11];
 
-            std::string mode(entry.substr(0, space_pos));
-            std::string name(entry.substr(space_pos + 1));
+    size_t pos = 12; // Start immediately after header
+    std::map<size_t, ParsedObject> objectsByOffset;
+    std::map<std::string, ParsedObject> objectsBySha;
 
-            const unsigned char *sha = reinterpret_cast<const unsigned char *>(contents.data() + null_pos + 1);
-            std::stringstream ss;
-            for (int i = 0; i < 20; i++) {
-                ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(sha[i]);
+    for (uint32_t i = 0; i < obj_count; ++i) {
+        size_t obj_offset = pos;
+
+        unsigned char c = packData[pos++];
+        int type = (c >> 4) & 7;
+        size_t size = c & 15;
+        size_t shift = 4;
+
+        while (c & 0x80) {
+            c = packData[pos++];
+            size |= static_cast<size_t>(c & 0x7F) << shift;
+            shift += 7;
+        }
+
+        if (type >= 1 && type <= 4) {
+            // Standard objects (commit, tree, blob, tag)
+            auto [data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
+            pos += consumed;
+
+            std::string typeStr = getTypeName(type);
+            objectsByOffset[obj_offset] = {typeStr, data};
+            std::string sha = git::objects::writeObject(typeStr, data);
+            objectsBySha[sha] = {typeStr, data};
+
+        } else if (type == 6) { 
+            // OFS_DELTA
+            size_t negative_offset = 0;
+            c = packData[pos++];
+            negative_offset = c & 0x7F;
+            while (c & 0x80) {
+                negative_offset++;
+                c = packData[pos++];
+                negative_offset = (negative_offset << 7) + (c & 0x7F);
             }
 
-            std::string type = (mode == "40000") ? "tree" : "blob";
-            std::cout << mode << ' ' << type << ' ' << ss.str() << ' ' << name << '\n';
-            pos = null_pos + 1 + 20;
+            size_t base_offset = obj_offset - negative_offset;
+            auto [delta_data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
+            pos += consumed;
+
+            if (objectsByOffset.find(base_offset) == objectsByOffset.end()) {
+                throw std::runtime_error("OFS_DELTA base not found in current pack");
+            }
+            
+            const auto& base_obj = objectsByOffset[base_offset];
+            std::string resolved_data = applyDelta(base_obj.data, delta_data);
+            
+            objectsByOffset[obj_offset] = {base_obj.type, resolved_data};
+            std::string sha = git::objects::writeObject(base_obj.type, resolved_data);
+            objectsBySha[sha] = {base_obj.type, resolved_data};
+
+        } else if (type == 7) {
+            // REF_DELTA
+            std::stringstream sha_ss;
+            for (int j = 0; j < 20; ++j) {
+                sha_ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(packData[pos++]);
+            }
+            std::string base_sha = sha_ss.str();
+
+            auto [delta_data, consumed] = decompressStream(&packData[pos], packData.size() - pos);
+            pos += consumed;
+
+            ParsedObject base_obj;
+            if (objectsBySha.find(base_sha) != objectsBySha.end()) {
+                base_obj = objectsBySha[base_sha];
+            } else {
+                // If base is not in memory, it might already exist in .git/objects
+                std::string raw = git::objects::readAndDecompressObject(base_sha);
+                size_t null_pos = raw.find('\0');
+                std::string header = raw.substr(0, null_pos);
+                base_obj.type = header.substr(0, header.find(' '));
+                base_obj.data = raw.substr(null_pos + 1);
+            }
+
+            std::string resolved_data = applyDelta(base_obj.data, delta_data);
+            
+            objectsByOffset[obj_offset] = {base_obj.type, resolved_data};
+            std::string sha = git::objects::writeObject(base_obj.type, resolved_data);
+            objectsBySha[sha] = {base_obj.type, resolved_data};
+        } else {
+            throw std::runtime_error("Unsupported object type: " + std::to_string(type));
         }
-    } catch (const std::exception &e) {
-        std::cerr << e.what() << '\n';
     }
 }
 
-void write_tree(const std::filesystem::path &dirPath) {
-    std::cout << git::objects::writeTreeObject(dirPath) << "\n";
-}
-
-void commit_tree(const std::string& treeSha, const std::string& parentSha, const std::string& message) {
-    std::cout << git::objects::writeCommitObject(treeSha, parentSha, message) << '\n';
-}
-
-void clone(const std::string& url, const std::string& dir) {
-    // 1. Create target directory and initialize git repository
-    std::filesystem::create_directories(dir);
-    std::filesystem::current_path(dir);
-    init();
-
-    // 2. Discover refs and get the HEAD commit SHA-1
-    std::string head_sha = git::network::discoverRefs(url);
-
-    // 3. Negotiate and fetch the packfile
-    std::vector<unsigned char> packfile = git::network::fetchPackfile(url, head_sha);
-
-    // 4. Parse the packfile, resolve deltas, and write loose objects to .git/objects
-    git::packfile::process(packfile);
-
-    // 5. Read the HEAD commit, recursively parse its tree, and write files to the working directory
-    git::checkout::workingTree(head_sha);
-}
-
-} // namespace git
+} // namespace git::packfile

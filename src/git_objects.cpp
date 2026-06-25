@@ -262,3 +262,107 @@ void commit_tree(const std::string &treeSha, const std::string &parentSha, const
 void clone(const std::string &url, const std::string &dir) { GitRepository::clone(url, dir); }
 
 } // namespace git
+
+namespace git::objects {
+
+ObjectStore::ObjectStore() : gitRoot_(std::filesystem::current_path() / ".git"), objectsRoot_(gitRoot_ / "objects") {}
+
+ObjectStore::ObjectStore(std::filesystem::path gitRoot) : gitRoot_(std::move(gitRoot)), objectsRoot_(gitRoot_ / "objects") {}
+
+ObjectStore::ObjectStore(std::filesystem::path gitRoot, std::filesystem::path objectsRoot)
+    : gitRoot_(std::move(gitRoot)), objectsRoot_(std::move(objectsRoot)) {}
+
+std::filesystem::path ObjectStore::objectPath(std::string_view hash) const {
+    return objectsRoot_ / std::string(hash.substr(0, 2)) / std::string(hash.substr(2));
+}
+
+std::string ObjectStore::readLooseObject(std::string_view hash) const {
+    auto path = objectPath(hash);
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("Failed to open: " + path.string());
+
+    std::vector<unsigned char> compressed((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return git::utils::decompressZlib(compressed);
+}
+
+std::string ObjectStore::writeLooseObject(const std::string &type, const std::string &content) const {
+    std::string header = type + " " + std::to_string(content.size()) + '\0';
+    std::string storeData = header + content;
+    std::string sha = git::utils::sha1Hex(storeData);
+
+    std::vector<unsigned char> compressed = git::utils::compressZlib(storeData);
+
+    std::filesystem::path dir = objectsRoot_ / sha.substr(0, 2);
+    std::filesystem::create_directories(dir);
+
+    std::filesystem::path path = dir / sha.substr(2);
+    std::ofstream out(path, std::ios::binary);
+    if (!out) throw std::runtime_error("Failed to write " + type + " object");
+    out.write(reinterpret_cast<const char *>(compressed.data()), compressed.size());
+    return sha;
+}
+
+std::string ObjectStore::writeTreeRecursive(const std::filesystem::path &dirPath) const {
+    std::vector<std::tuple<std::string, std::string, std::string>> entries;
+
+    for (const auto &entry : std::filesystem::directory_iterator(dirPath)) {
+        if (entry.path().filename() == ".git") continue;
+
+        std::string name = entry.path().filename().string();
+        if (entry.is_directory()) {
+            entries.push_back({"40000", name, writeTreeRecursive(entry.path())});
+        } else if (entry.is_regular_file()) {
+            std::vector<unsigned char> contentVec = git::utils::readFile(entry.path().string());
+            std::string content(contentVec.begin(), contentVec.end());
+            std::string mode = (entry.status().permissions() & std::filesystem::perms::owner_exec) != std::filesystem::perms::none ? "100755" : "100644";
+            entries.push_back({mode, name, writeLooseObject("blob", content)});
+        }
+    }
+
+    std::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) {
+        return std::get<1>(a) < std::get<1>(b);
+    });
+
+    std::string data;
+    for (const auto &[mode, name, sha] : entries) {
+        data += mode + " " + name + '\0';
+        for (size_t i = 0; i < 20; ++i) {
+            unsigned int byte;
+            std::stringstream ss;
+            ss << std::hex << sha.substr(i * 2, 2);
+            ss >> byte;
+            data.push_back(static_cast<char>(byte));
+        }
+    }
+
+    return writeLooseObject("tree", data);
+}
+
+std::string ObjectStore::readAndDecompressObject(std::string_view hash) const {
+    return readLooseObject(hash);
+}
+
+std::string ObjectStore::writeObject(const std::string &type, const std::string &content) const {
+    return writeLooseObject(type, content);
+}
+
+std::string ObjectStore::writeTreeObject(const std::filesystem::path &dirPath) const {
+    return writeTreeRecursive(dirPath);
+}
+
+std::string ObjectStore::writeCommitObject(const std::string &treeSha, const std::string &parentSha, const std::string &message) const {
+    std::string commitData;
+    commitData += "tree " + treeSha + '\n';
+    if (!parentSha.empty()) {
+        commitData += "parent " + parentSha + '\n';
+    }
+    std::string timestamp = git::utils::getCurrentTimestamp();
+    commitData += "author Codecrafters <codecrafters@example.com> " + timestamp + '\n';
+    commitData += "committer Codecrafters <codecrafters@example.com> " + timestamp + "\n\n";
+    commitData += message;
+    commitData += '\n';
+
+    return writeLooseObject("commit", commitData);
+}
+
+} // namespace git::objects

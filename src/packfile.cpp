@@ -217,3 +217,16 @@ void process(const std::vector<unsigned char> &packData) {
 }
 
 } // namespace git::packfile
+
+namespace git::packfile {
+
+PackfileProcessor::PackfileProcessor() : strictBounds_(true) {}
+
+PackfileProcessor::PackfileProcessor(bool strictBounds) : strictBounds_(strictBounds) {}
+
+void PackfileProcessor::process(const std::vector<unsigned char> &packData) const {
+    (void)strictBounds_;
+    git::packfile::process(packData);
+}
+
+} // namespace git::packfile

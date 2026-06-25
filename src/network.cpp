@@ -131,3 +131,27 @@ std::vector<unsigned char> fetchPackfile(const std::string &url, const std::stri
 }
 
 } // namespace git::network
+
+namespace git::network {
+
+RemoteRepository::RemoteRepository() = default;
+
+RemoteRepository::RemoteRepository(std::string baseUrl) : baseUrl_(std::move(baseUrl)) {}
+
+std::string RemoteRepository::discoverRefs() const {
+    return git::network::discoverRefs(baseUrl_);
+}
+
+std::string RemoteRepository::discoverRefs(const std::string &url) const {
+    return git::network::discoverRefs(url);
+}
+
+std::vector<unsigned char> RemoteRepository::fetchPackfile(const std::string &head_sha) const {
+    return git::network::fetchPackfile(baseUrl_, head_sha);
+}
+
+std::vector<unsigned char> RemoteRepository::fetchPackfile(const std::string &url, const std::string &head_sha) const {
+    return git::network::fetchPackfile(url, head_sha);
+}
+
+} // namespace git::network

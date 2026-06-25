@@ -82,6 +82,8 @@ private:
             pos = null_pos + 1 + 20;
         }
     }
+};
+
 } // namespace
 
 void workingTree(const std::string& commit_sha) {

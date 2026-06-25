@@ -1,59 +1,49 @@
-[![progress-banner](https://backend.codecrafters.io/progress/git/c555469f-1146-4709-b50c-528a5b2faa4e)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# Build Your Own Git (C++17 OOP Implementation)
 
-This is a starting point for C++ solutions to the
-["Build Your Own Git" Challenge](https://codecrafters.io/challenges/git).
+This repository contains a custom, from-scratch implementation of Git internals written in modern C++17. Originally started as part of the [CodeCrafters](https://codecrafters.io) "Build Your Own Git" challenge, this project has been heavily refactored into a robust Object-Oriented architecture.
 
-In this challenge, you'll build a small Git implementation that's capable of
-initializing a repository, creating commits and cloning a public repository.
-Along the way we'll learn about the `.git` directory, Git objects (blobs,
-commits, trees etc.), Git's transfer protocols and more.
+## 🏗️ Architecture & Design
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+Unlike standard functional approaches, this implementation heavily leverages Object-Oriented Programming (OOP) principles to model Git's internal data structures:
 
-# Passing the first stage
+* **Encapsulation:** The repository state, filesystem interactions, and network buffers are securely encapsulated within dedicated management classes, preventing state leakage and ensuring safe resource handling (RAII).
+* **Polymorphic Git Objects:** Core Git entities (`Blob`, `Tree`, `Commit`) are modeled as classes, inheriting from a base `GitObject` interface. 
+* **Operator Overloading:** Custom operator overloads (e.g., `operator<<` and `operator>>`) are utilized for clean, idiomatic serialization and deserialization of Git objects to and from the Zlib-compressed `.git/objects` database.
 
-The entry point for your Git implementation is in `src/main.cpp`. Study and
-uncomment the relevant code, and then run the command below to execute the tests
-on our servers:
+## ✨ Features Implemented
 
-```sh
-codecrafters submit
-```
+This client supports the core lifecycle of a Git repository, including remote interactions via the Smart HTTP protocol.
 
-That's all!
+* `init`: Initialize a new local `.git` directory structure.
+* `cat-file -p`: Parse, decompress, and pretty-print the contents of a blob, tree, or commit object.
+* `hash-object -w`: Compute the SHA-1 hash of a local file, compress it via Zlib, and write it to the object database.
+* `ls-tree`: Read a tree object and list its contents (handles file modes, object types, and SHA-1s).
+* `write-tree`: Recursively traverse the current working directory and build a complete Git tree structure.
+* `commit-tree`: Construct a commit object linking a tree to its parent commit with an author timestamp and message.
+* `clone`: Negotiate with a remote Git server, download a compressed packfile, resolve `OFS_DELTA` and `REF_DELTA` objects, and reconstruct the working tree locally.
 
-# Stage 2 & beyond
+## 🛠️ Prerequisites
 
-Note: This section is for stages 2 and beyond.
+To build and run this project, you will need:
 
-1. Ensure you have `cmake` installed locally
-1. Run `./your_program.sh` to run your Git implementation, which is implemented
-   in `src/main.cpp`.
-1. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+* A C++17 compatible compiler (GCC, Clang, or MSVC)
+* [CMake](https://cmake.org/) (v3.10+)
+* **Zlib** (for object compression/decompression)
+* **OpenSSL** (for SHA-1 hashing)
+* **libcurl** (for Smart HTTP network requests)
 
-# Testing locally
+## 🚀 Build Instructions
 
-The `your_program.sh` script is expected to operate on the `.git` folder inside
-the current working directory. If you're running this inside the root of this
-repository, you might end up accidentally damaging your repository's `.git`
-folder.
+This project uses CMake for its build system. To compile the project locally:
 
-We suggest executing `your_program.sh` in a different folder when testing
-locally. For example:
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd <your-repo-directory>
 
-```sh
-mkdir -p /tmp/testing && cd /tmp/testing
-/path/to/your/repo/your_program.sh init
-```
+# Create a build directory
+mkdir build && cd build
 
-To make this easier to type out, you could add a
-[shell alias](https://shapeshed.com/unix-alias/):
-
-```sh
-alias mygit=/path/to/your/repo/your_program.sh
-
-mkdir -p /tmp/testing && cd /tmp/testing
-mygit init
-```
+# Configure and compile
+cmake ..
+make

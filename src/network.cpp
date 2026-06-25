@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace git::network {
@@ -52,7 +53,7 @@ private:
         if (res != CURLE_OK) {
             curl_slist_free_all(headers);
             curl_easy_cleanup(curl);
-            throw std::runtime_error(isPost ? "CURL POST request failed: " : "CURL request failed: ");
+            throw std::runtime_error((isPost ? "CURL POST request failed: " : "CURL request failed: ") + std::string(curl_easy_strerror(res)));
         }
 
         curl_slist_free_all(headers);
@@ -61,85 +62,54 @@ private:
     }
 };
 
-class RemoteRepository {
-public:
-    explicit RemoteRepository(std::string baseUrl) : baseUrl_(std::move(baseUrl)) {}
+std::string parseRefsPacket(const std::string &respStr) {
+    size_t pos = 0;
+    std::string targetSha;
 
-    std::string discoverRefs() const {
-        std::string requestUrl = baseUrl_ + "/info/refs?service=git-upload-pack";
-        auto response = client_.get(requestUrl);
-        std::string respStr(response.begin(), response.end());
+    while (pos + 4 <= respStr.size()) {
+        std::string lenStr = respStr.substr(pos, 4);
+        int len = std::stoi(lenStr, nullptr, 16);
 
-        size_t pos = 0;
-        std::string targetSha;
-
-        while (pos + 4 <= respStr.size()) {
-            std::string lenStr = respStr.substr(pos, 4);
-            int len = std::stoi(lenStr, nullptr, 16);
-
-            if (len == 0) {
-                pos += 4;
-                continue;
-            }
-            if (pos + len > respStr.size()) break;
-
-            std::string line = respStr.substr(pos + 4, len - 4);
-            pos += len;
-
-            if (line.find("HEAD") != std::string::npos && targetSha.empty()) {
-                targetSha = line.substr(0, 40);
-            } else if (line.find("refs/heads/master") != std::string::npos || line.find("refs/heads/main") != std::string::npos) {
-                targetSha = line.substr(0, 40);
-            }
+        if (len == 0) {
+            pos += 4;
+            continue;
         }
+        if (pos + len > respStr.size()) break;
 
-        if (targetSha.empty()) {
-            throw std::runtime_error("Could not find HEAD or master/main ref");
+        std::string line = respStr.substr(pos + 4, len - 4);
+        pos += len;
+
+        if (line.find("HEAD") != std::string::npos && targetSha.empty()) {
+            targetSha = line.substr(0, 40);
+        } else if (line.find("refs/heads/master") != std::string::npos || line.find("refs/heads/main") != std::string::npos) {
+            targetSha = line.substr(0, 40);
         }
-
-        return targetSha;
     }
 
-    std::vector<unsigned char> fetchPackfile(const std::string &headSha) const {
-        std::string requestUrl = baseUrl_ + "/git-upload-pack";
-        std::string body = "0032want " + headSha + "\n0000" + "0009done\n";
-
-        auto response = client_.post(requestUrl, body);
-
-        const unsigned char packSig[] = {'P', 'A', 'C', 'K'};
-        auto it = std::search(response.begin(), response.end(), std::begin(packSig), std::end(packSig));
-        if (it == response.end()) {
-            throw std::runtime_error("Packfile signature 'PACK' not found in response");
-        }
-
-        return std::vector<unsigned char>(it, response.end());
+    if (targetSha.empty()) {
+        throw std::runtime_error("Could not find HEAD or master/main ref");
     }
 
-private:
-    std::string baseUrl_;
-    HttpClient client_;
-};
+    return targetSha;
+}
+
+std::vector<unsigned char> parsePackfile(const std::vector<unsigned char> &response) {
+    const unsigned char packSig[] = {'P', 'A', 'C', 'K'};
+    auto it = std::search(response.begin(), response.end(), std::begin(packSig), std::end(packSig));
+    if (it == response.end()) {
+        throw std::runtime_error("Packfile signature 'PACK' not found in response");
+    }
+
+    return std::vector<unsigned char>(it, response.end());
+}
 
 } // namespace
 
-std::string discoverRefs(const std::string &url) {
-    return RemoteRepository(url).discoverRefs();
-}
-
-std::vector<unsigned char> fetchPackfile(const std::string &url, const std::string &head_sha) {
-    return RemoteRepository(url).fetchPackfile(head_sha);
-}
-
-} // namespace git::network
-
-namespace git::network {
-
 RemoteRepository::RemoteRepository() = default;
-
 RemoteRepository::RemoteRepository(std::string baseUrl) : baseUrl_(std::move(baseUrl)) {}
 
 std::string RemoteRepository::discoverRefs() const {
-    return git::network::discoverRefs(baseUrl_);
+    return discoverRefs(baseUrl_);
 }
 
 std::string RemoteRepository::discoverRefs(const std::string &url) const {
@@ -147,11 +117,27 @@ std::string RemoteRepository::discoverRefs(const std::string &url) const {
 }
 
 std::vector<unsigned char> RemoteRepository::fetchPackfile(const std::string &head_sha) const {
-    return git::network::fetchPackfile(baseUrl_, head_sha);
+    return fetchPackfile(baseUrl_, head_sha);
 }
 
 std::vector<unsigned char> RemoteRepository::fetchPackfile(const std::string &url, const std::string &head_sha) const {
     return git::network::fetchPackfile(url, head_sha);
+}
+
+std::string discoverRefs(const std::string &url) {
+    HttpClient client;
+    std::string requestUrl = url + "/info/refs?service=git-upload-pack";
+    auto response = client.get(requestUrl);
+    std::string respStr(response.begin(), response.end());
+    return parseRefsPacket(respStr);
+}
+
+std::vector<unsigned char> fetchPackfile(const std::string &url, const std::string &head_sha) {
+    HttpClient client;
+    std::string requestUrl = url + "/git-upload-pack";
+    std::string body = "0032want " + head_sha + "\n0000" + "0009done\n";
+    auto response = client.post(requestUrl, body);
+    return parsePackfile(response);
 }
 
 } // namespace git::network

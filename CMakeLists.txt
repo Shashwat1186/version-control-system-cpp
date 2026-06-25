@@ -13,14 +13,14 @@ find_package(CURL REQUIRED)
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 # Create the executable
-add_executable(mygit ${SOURCES})
+add_executable(git ${SOURCES})
 
 # Link libraries
-target_link_libraries(mygit PRIVATE
+target_link_libraries(git PRIVATE
     ZLIB::ZLIB
     OpenSSL::Crypto
     CURL::libcurl
 )
 
 # Optional: Add strict compilation warnings to keep the project clean
-target_compile_options(mygit PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(git PRIVATE -Wall -Wextra -Wpedantic)

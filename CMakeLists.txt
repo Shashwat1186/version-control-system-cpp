@@ -10,15 +10,7 @@ find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 
 # Add source files
-set(SOURCES
-    main.cpp
-    utils.cpp
-    git_objects.cpp
-    git_commands.cpp
-    network.cpp
-    packfile.cpp
-    checkout.cpp
-)
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 # Create the executable
 add_executable(mygit ${SOURCES})

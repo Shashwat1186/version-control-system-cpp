@@ -40,6 +40,27 @@ int main(int argc, char *argv[]) {
       git::writeTree(fs::current_path());
       
   }
+  else if (command == "commit-tree") {
+
+    std::string treeSha = argv[2];
+
+    std::string parentSha;
+    std::string message;
+
+    for (int i = 3; i < argc; ++i) {
+
+        std::string arg = argv[i];
+
+        if (arg == "-p") {
+            parentSha = argv[++i];
+        }
+        else if (arg == "-m") {
+            message = argv[++i];
+        }
+    }
+
+    git::commitTree(treeSha, parentSha, message);
+}
   else {
     std::cerr << "Unknown command " << command << '\n';
     return EXIT_FAILURE;

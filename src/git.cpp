@@ -10,7 +10,8 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
-
+#include <chrono>
+#include <ctime>
 #include "zstr.hpp"
 #include <openssl/sha.h>
 
@@ -155,6 +156,69 @@ std::string readAndDecompressObject(std::string_view hash) {
     return decompressZlib(compressed);
 }
 
+std::string getCurrentTimestamp() {
+    using namespace std::chrono;
+
+    auto now = system_clock::now();
+    auto seconds = system_clock::to_time_t(now);
+
+    std::tm local = *std::localtime(&seconds);
+    std::tm utc = *std::gmtime(&seconds);
+
+    std::time_t local_time = std::mktime(&local);
+    std::time_t utc_time = std::mktime(&utc);
+
+    long offset = static_cast<long>(std::difftime(local_time, utc_time));
+
+    char sign = offset >= 0 ? '+' : '-';
+    offset = std::abs(offset);
+
+    int hours = offset / 3600;
+    int mins = (offset % 3600) / 60;
+
+    std::stringstream ss;
+    ss << seconds << " "
+       << sign
+       << std::setw(2) << std::setfill('0') << hours
+       << std::setw(2) << mins;
+
+    return ss.str();
+}
+
+std::string writeCommitObject(
+    const std::string& treeSha,
+    const std::string& parentSha,
+    const std::string& message)
+{
+    std::stringstream commit;
+
+    commit << "tree " << treeSha << "\n";
+
+    if (!parentSha.empty())
+        commit << "parent " << parentSha << "\n";
+
+    std::string timestamp = getCurrentTimestamp();
+
+    std::string author =
+        "Codecrafters <codecrafters@example.com>";
+
+    commit << "author "
+           << author
+           << " "
+           << timestamp
+           << "\n";
+
+    commit << "committer "
+           << author
+           << " "
+           << timestamp
+           << "\n\n";
+
+    commit << message << "\n";
+
+    return writeObject("commit", commit.str());
+}
+
 } // namespace
 
 namespace git {
@@ -252,6 +316,10 @@ auto ls_tree(std::string_view hash) -> void {
 
 auto writeTree(const fs::path &dirPath) -> void {
     std::cout << writeTreeObject(dirPath) << "\n";
+}
+
+auto commitTree(const std::string& treeSha, const std::string& parentSha,const std::string& message)-> void {
+    std::cout<< writeCommitObject(treeSha, parentSha, message)<< '\n';
 }
 
 } // namespace git

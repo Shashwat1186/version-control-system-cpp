@@ -11,4 +11,5 @@ auto hash_object(std::string filename) -> void;
 auto ls_tree_name_only(std::string_view file_name) -> void;
 auto ls_tree(std::string_view file_name) -> void;
 auto writeTree(const fs::path &dirPath) -> void ;
+auto commitTree(const std::string& treeSha, const std::string& parentSha,const std::string& message)-> void;
 } // namespace git

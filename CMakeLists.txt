@@ -7,11 +7,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find required packages
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)
+
+
 
 # Add source files
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
-list(FILTER SOURCES EXCLUDE REGEX "src/git_commands\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "src/git_commands\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "src/network\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "src/packfile\\.cpp$")
 
 # Create the executable
 add_executable(git ${SOURCES})
@@ -20,7 +24,6 @@ add_executable(git ${SOURCES})
 target_link_libraries(git PRIVATE
     ZLIB::ZLIB
     OpenSSL::Crypto
-    CURL::libcurl
 )
 
 # Optional: Add strict compilation warnings to keep the project clean

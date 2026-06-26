@@ -82,16 +82,29 @@ static void processTree(const std::string &treeSha, const std::filesystem::path 
 
 // --- Main Function ---
 
-void workingTree(const std::string& commit_sha) {
+void workingTree(const std::string& target) {
     std::filesystem::path workingRoot = std::filesystem::current_path();
     git::objects::ObjectStore store(workingRoot / ".git", workingRoot / ".git" / "objects");
+
+    std::string commit_sha = target;
+    bool is_branch = false;
+
+    // Check if target is a branch
+    std::filesystem::path branch_path = workingRoot / ".git" / "refs" / "heads" / target;
+    if (std::filesystem::exists(branch_path)) {
+        is_branch = true;
+        std::ifstream branch_file(branch_path);
+        if (branch_file) {
+            std::getline(branch_file, commit_sha);
+        }
+    }
 
     // 1. Read and parse the commit object
     std::string commit_data;
     try {
         commit_data = store.readAndDecompressObject(commit_sha);
     } catch (const std::exception& e) {
-        std::cerr << "Failed to read commit object. Ensure you passed a valid commit SHA.\n";
+        std::cerr << "Failed to read commit object. Ensure you passed a valid commit SHA or branch name.\n";
         throw;
     }
 
@@ -110,7 +123,22 @@ void workingTree(const std::string& commit_sha) {
     // 3. Recursively reconstruct the tree structure
     processTree(tree_sha, workingRoot, workingRoot);
     
-    std::cout << "Successfully checked out commit " << commit_sha << "\n";
+    // 4. Update HEAD
+    std::ofstream head_file(workingRoot / ".git" / "HEAD");
+    if (head_file) {
+        if (is_branch) {
+            head_file << "ref: refs/heads/" << target << "\n";
+        } else {
+            head_file << commit_sha << "\n";
+        }
+    }
+
+    if (is_branch) {
+        std::cout << "Switched to branch '" << target << "'\n";
+    } else {
+        std::cout << "Note: checking out '" << commit_sha << "'.\n";
+        std::cout << "You are in 'detached HEAD' state.\n";
+    }
 }
 
 } // namespace git::checkout

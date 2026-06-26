@@ -1,7 +1,7 @@
 #include "git_commands.hpp"
 #include "git_objects.hpp"
-#include "network.hpp"
-#include "packfile.hpp"
+// // #include "network.hpp"
+// // #include "packfile.hpp"
 #include "checkout.hpp"
 #include "utils.hpp"
 
@@ -216,7 +216,7 @@ public:
         std::cout << ObjectStore::writeCommitObject(treeSha, parentSha, message) << '\n';
     }
 
-    static void clone(const std::string &url, const std::string &dir) {
+    /*static void clone(const std::string &url, const std::string &dir) {
         fs::create_directories(dir);
         fs::current_path(dir);
         init();
@@ -225,7 +225,7 @@ public:
         std::vector<unsigned char> packfile = git::network::fetchPackfile(url, headSha);
         git::packfile::process(packfile);
         git::checkout::workingTree(headSha);
-    }
+    }*/
 };
 
 } // namespace
@@ -263,7 +263,7 @@ void ls_tree_name_only(std::string_view hash) { GitRepository::lsTreeNameOnly(ha
 void ls_tree(std::string_view hash) { GitRepository::lsTree(hash); }
 void write_tree(const std::filesystem::path &dirPath) { GitRepository::writeTree(dirPath); }
 void commit_tree(const std::string &treeSha, const std::string &parentSha, const std::string &message) { GitRepository::commitTree(treeSha, parentSha, message); }
-void clone(const std::string &url, const std::string &dir) { GitRepository::clone(url, dir); }
+// void clone(const std::string &url, const std::string &dir) { GitRepository::clone(url, dir); }
 
 } // namespace git
 

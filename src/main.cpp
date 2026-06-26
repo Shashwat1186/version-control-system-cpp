@@ -59,13 +59,13 @@ int main(int argc, char *argv[]) {
                 std::cerr << "Usage: mygit commit-tree <tree_sha> [-p <parent_sha>] -m <message>\n";
                 return 1;
             }
-        } else if (command == "clone") {
+        /*} else if (command == "clone") {
             if (argc == 4) {
                 git::clone(argv[2], argv[3]);
             } else {
                 std::cerr << "Usage: mygit clone <url> <directory>\n";
                 return 1;
-            }
+            }*/
         } else if (command == "branch") {
             if (argc == 2) {
                 std::vector<std::string> branches = git::branch::Branch::get_all();
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
             if (argc == 3) {
                 git::checkout::workingTree(argv[2]); 
             } else {
-                std::cerr << "Usage: mygit checkout <commit_sha>\n";
+                std::cerr << "Usage: mygit checkout <branch_name>|<commit_sha>\n";
                 return 1;
             }
         } else {

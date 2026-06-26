@@ -43,6 +43,8 @@ void Branch::create_from_head() const {
         throw std::runtime_error("A branch named '" + name + "' already exists.");
     }
 
+    std::filesystem::create_directories(branch_path.parent_path());
+
     std::ofstream out(branch_path);
     if (!out) throw std::runtime_error("Failed to create branch file.");
     
